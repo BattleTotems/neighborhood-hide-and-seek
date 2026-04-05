@@ -31,6 +31,10 @@ local State = {
   roundPhase = "none", -- none | pending (preparing) | hiding | searching
   remoteRoundActive = false,
   remoteSeekerKey = nil,
+  -- Follower: leader sent "[NHS] Game session started" (stays true until Game Over chat).
+  remoteSessionActive = false,
+  -- Raid leader: we PromoteToAssistant'd the seeker for RAID_WARNING; demote on round/session end.
+  nhsSeekerPromotedAsAssistantKey = nil,
 }
 
 local function clearFound()
@@ -45,10 +49,17 @@ local function ensureSavedVars()
     NHSV.hideGroupFramesInSeeker = true
   end
   if NHSV.hideMinimapInSeeker == nil then
-    NHSV.hideMinimapInSeeker = false
+    NHSV.hideMinimapInSeeker = true
   end
   if NHSV.minimapButtonAngle == nil then
     NHSV.minimapButtonAngle = math.rad(200)
+  end
+  -- Nudge MiniMap-TrackingBorder only (spell icon stays centered on the button).
+  if NHSV.minimapRingOffsetX == nil then
+    NHSV.minimapRingOffsetX = 0
+  end
+  if NHSV.minimapRingOffsetY == nil then
+    NHSV.minimapRingOffsetY = 0
   end
 end
 
@@ -1317,6 +1328,197 @@ end
 -- UI table exists early for GROUP_ROSTER_UPDATE / PARTY_LEADER_CHANGED refresh hooks.
 local UI = {}
 local setSeekerMode -- assigned with main frame; follower sync may call to exit seeker when a round ends.
+local nhsSeekerAutoModeSyncToPhase -- after setSeekerMode: auto-enable seeker mode in Hiding / Searching
+local nhsGetGroupRoster -- session HUD hidden list; assigned below with roster helpers
+
+-- Compact session summary (Phase / Seeker / Hidden / Found) while a session or synced round is active.
+local function nhsSessionHudIsActive()
+  return State.gameSessionActive or State.remoteSessionActive or State.remoteRoundActive
+end
+
+local function nhsSessionHudPhaseText()
+  if State.gameSessionActive and State.gamePhase == "pick_seeker" then
+    return "Seeker selection"
+  end
+  if State.gamePhase == "round_active" or State.remoteRoundActive then
+    if State.roundPhase == "pending" then
+      return "Preparing"
+    elseif State.roundPhase == "hiding" then
+      return "Hiding"
+    elseif State.roundPhase == "searching" then
+      return "Searching"
+    end
+    return "Round active"
+  end
+  if State.remoteSessionActive then
+    return "Waiting for round"
+  end
+  return "—"
+end
+
+local function nhsSessionHudSeekerText()
+  if State.remoteRoundActive and State.remoteSeekerKey then
+    return Ambiguate(State.remoteSeekerKey, "short")
+  end
+  if State.gamePhase == "round_active" and State.gameLockedSeekerDisplay then
+    return State.gameLockedSeekerDisplay
+  end
+  if State.gamePhase == "pick_seeker" and State.gameCandidateDisplay then
+    return State.gameCandidateDisplay
+  end
+  return "—"
+end
+
+local function nhsSessionHudSeekerKeyForLists()
+  if State.remoteRoundActive and State.remoteSeekerKey then
+    return State.remoteSeekerKey
+  end
+  if State.gamePhase == "round_active" and State.gameLockedSeekerKey then
+    return State.gameLockedSeekerKey
+  end
+  if State.gamePhase == "pick_seeker" and State.gameCandidateKey then
+    return State.gameCandidateKey
+  end
+  return nil
+end
+
+local function nhsSessionHudCommaList(names, maxShown)
+  maxShown = maxShown or 14
+  if #names == 0 then
+    return "(none)"
+  end
+  table.sort(names)
+  if #names <= maxShown then
+    return table.concat(names, ", ")
+  end
+  local parts = {}
+  for i = 1, maxShown do
+    parts[i] = names[i]
+  end
+  return table.concat(parts, ", ") .. (", +" .. tostring(#names - maxShown) .. " more")
+end
+
+local function nhsSessionHudFoundText()
+  local names = {}
+  for i = 1, #State.foundOrder do
+    names[#names + 1] = Ambiguate(State.foundOrder[i], "short")
+  end
+  return nhsSessionHudCommaList(names)
+end
+
+local function nhsSessionHudHiddenText()
+  local sk = nhsSessionHudSeekerKeyForLists()
+  if not sk then
+    if (State.gameSessionActive and State.gamePhase == "pick_seeker") or (State.remoteSessionActive and not State.remoteRoundActive) then
+      return "Pick seeker…"
+    end
+    return "—"
+  end
+  local roster = nhsGetGroupRoster()
+  local names = {}
+  for _, m in ipairs(roster) do
+    if m.key ~= sk and not State.foundSet[m.key] then
+      names[#names + 1] = Ambiguate(m.key, "short")
+    end
+  end
+  return nhsSessionHudCommaList(names)
+end
+
+local function nhsSessionHudUpdate()
+  local hud = UI.sessionHud
+  if not hud then
+    return
+  end
+  if not nhsSessionHudIsActive() then
+    hud:Hide()
+    return
+  end
+  hud:Show()
+  hud._phaseLine:SetText("Phase: " .. nhsSessionHudPhaseText())
+  hud._seekerLine:SetText("Seeker: " .. nhsSessionHudSeekerText())
+  hud._foundLine:SetText("Found: " .. nhsSessionHudFoundText())
+  hud._hiddenLine:SetText("Hidden: " .. nhsSessionHudHiddenText())
+  local w = hud._contentW or 216
+  local padBottom = 14
+  local hTitle = hud._title:GetStringHeight() or 12
+  local hPhase = hud._phaseLine:GetStringHeight() or 12
+  local hSeek = hud._seekerLine:GetStringHeight() or 12
+  local hHid = hud._hiddenLine:GetStringHeight() or 12
+  local hFound = hud._foundLine:GetStringHeight() or 12
+  local totalH = 12 + hTitle + 10 + hPhase + 4 + hSeek + 8 + hHid + 6 + hFound + padBottom
+  hud:SetHeight(math.max(130, math.min(360, totalH)))
+end
+
+local function nhsInitSessionHud()
+  if UI.sessionHud then
+    return
+  end
+  ensureSavedVars()
+  local hud = CreateFrame("Frame", ADDON_NAME .. "SessionHud", UIParent, "BackdropTemplate")
+  local contentW = 216
+  hud._contentW = contentW
+  hud:SetSize(240, 160)
+  hud:SetClampedToScreen(true)
+  hud:SetMovable(true)
+  hud:SetFrameStrata("MEDIUM")
+  hud:SetFrameLevel(25)
+  hud:EnableMouse(true)
+  hud:RegisterForDrag("LeftButton")
+  hud:SetScript("OnDragStart", function(self)
+    self:StartMoving()
+  end)
+  hud:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    ensureSavedVars()
+    local p, _, rp, x, y = self:GetPoint(1)
+    NHSV.sessionHudPoint = { p, rp or "UIParent", x, y }
+  end)
+  hud:SetBackdrop({
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true,
+    tileSize = 32,
+    edgeSize = 16,
+    insets = { left = 8, right = 8, top = 8, bottom = 8 },
+  })
+  hud:SetBackdropColor(0, 0, 0, 0.85)
+  if NHSV.sessionHudPoint then
+    local hp = NHSV.sessionHudPoint
+    hud:SetPoint(hp[1], UIParent, hp[2], hp[3], hp[4])
+  else
+    hud:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -24, -160)
+  end
+  local title = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  title:SetPoint("TOPLEFT", 12, -12)
+  title:SetText("Hide & Seek")
+  hud._title = title
+  local phaseLine = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  phaseLine:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
+  phaseLine:SetWidth(contentW)
+  phaseLine:SetJustifyH("LEFT")
+  phaseLine:SetSpacing(2)
+  local seekerLine = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  seekerLine:SetPoint("TOPLEFT", phaseLine, "BOTTOMLEFT", 0, -4)
+  seekerLine:SetWidth(contentW)
+  seekerLine:SetJustifyH("LEFT")
+  seekerLine:SetSpacing(2)
+  local hiddenLine = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  hiddenLine:SetPoint("TOPLEFT", seekerLine, "BOTTOMLEFT", 0, -8)
+  hiddenLine:SetWidth(contentW)
+  hiddenLine:SetJustifyH("LEFT")
+  hiddenLine:SetSpacing(2)
+  local foundLine = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  foundLine:SetPoint("TOPLEFT", hiddenLine, "BOTTOMLEFT", 0, -6)
+  foundLine:SetWidth(contentW)
+  foundLine:SetJustifyH("LEFT")
+  foundLine:SetSpacing(2)
+  hud._phaseLine = phaseLine
+  hud._seekerLine = seekerLine
+  hud._foundLine = foundLine
+  hud._hiddenLine = hiddenLine
+  UI.sessionHud = hud
+  nhsSessionHudUpdate()
+end
 
 local ROUND_PRESETS = {
   { label = "Small", hideSec = 180, searchSec = 240 },
@@ -1326,27 +1528,30 @@ local ROUND_PRESETS = {
 }
 
 local NHS_HOW_TO_PLAY_TEXT = table.concat({
-  "|cffffffffOverview|r",
-  "Neighborhood Hide & Seek is for parties and raids in housing neighborhoods. Each round, one player is the seeker; everyone else hides. The party/raid leader runs timers and seeker picks (you can also play solo).",
+  "Overview",
+  "Neighborhood Hide & Seek is for parties and raids in housing neighborhoods. Each round, one player is the seeker; everyone else hides. The party/raid leader keeps the game running and moves through the phases.",
   "",
-  "|cffffffffGame control|r",
-  "• |cffffffffStart game session|r — begins a session. |cffffffffEnd game session|r stops it.",
-  "• |cffffffffSeeker selection|r — |cffffffffRandom seeker|r picks a candidate, then |cffffffffConfirm seeker|r locks them in for the round.",
-  "• Phases: |cffffffffSeeker selection|r → |cffffffffPreparing|r → |cffffffffHiding|r → |cffffffffSearching|r.",
-  "• In |cffffffffPreparing|r, use the hiding countdown presets (party countdown). In |cffffffffHiding|r, use the searching countdown presets.",
-  "• |cffffffffEnd round|r ends the current round so you can pick the next seeker (available during Preparing, Hiding, and Searching).",
+  "Gameplay",
+  "• Phases: Seeker selection -> Preparing -> Hiding -> Searching.",
+  "• Information is shown in the compact HUD while a session or synced round is active.",
+  "• Phase - Seeker Selection: during this phase, the leader picks a seeker from the group.",
+  "• Phase - Preparing: during this phase, the whole group has a chance to move to the selected house and prepare for the next phase.",
+  "• Phase - Hiding: during this phase, everyone but the seeker hides. This is started by a timer. Everyone has the set amount of time to hide before the seeker starts searching.",
+  "• Phase - Searching: during this phase, the seeker searches. This is started by a timer. The seeker has the set amount of time to search before the round ends. The round ends early if the seeker finds all players.",
   "",
-  "|cffffffffGameplay|r",
-  "• The current seeker is shown for the active round.",
-  "• Only the designated seeker may |cffffffffEnter seeker mode|r (simplified nameplates / UI).",
-  "• In |cffffffffSearching|r, the seeker targets a found player and uses |cffffffffMark target as found|r. A short [NHS] chat line syncs the found list for the group.",
-  "• |cffffffffView past seekers|r lists everyone who has already been seeker this session (leader/solo).",
+  "Game control (leader only)",
+  "• Start game session — begins a session. End game session stops it.",
+  "• Seeker selection — Random seeker picks a candidate that has not been seeker yet, then Confirm seeker locks them in for the round.",
+  "• In Preparing, use the hiding countdown presets (party countdown) to move to the next phase when the group is prepared.",
+  "• In Hiding, use the searching countdown presets to move to the next phase when the seeker starts searching.",
+  "• In Searching, when the searching countdown ends or when seeker finds all players, this can end the round and move to the next round.",
   "",
-  "|cffffffffHouses|r",
+  "Houses",
   "• Use the house list, map pin, and share actions to pick a plot and post a pin in chat.",
+  "• This can be used to select the house in the neighborhood that everyone will hide in for the round.",
   "",
-  "|cffffffffSync|r",
-  "Rounds and found players sync through party/raid chat lines beginning with [NHS]. Followers see the same phases and seeker as the leader.",
+  "Sync",
+  "Rounds and found players sync through party/raid chat lines beginning with [NHS]. Group members see the same phases and seeker as the leader.",
 }, "\n")
 
 local function nhsUnitSortKey(unit)
@@ -1365,7 +1570,7 @@ local function nhsUnitDisplay(unit)
   return UnitName(unit) or "?"
 end
 
-local function nhsGetGroupRoster()
+nhsGetGroupRoster = function()
   local list = {}
   if not IsInGroup() then
     local unit = "player"
@@ -1408,8 +1613,84 @@ local function nhsGetGroupRoster()
   return list
 end
 
+local function nhsUnitIsInGroupRoster(unit)
+  if not unit or not UnitExists(unit) or not UnitIsPlayer(unit) then
+    return false
+  end
+  local tk = nhsUnitSortKey(unit)
+  if not tk then
+    return false
+  end
+  for _, m in ipairs(nhsGetGroupRoster()) do
+    if m.key == tk then
+      return true
+    end
+  end
+  return false
+end
+
+local function nhsFindGroupUnitForSortKey(wantKey)
+  if not wantKey then
+    return nil
+  end
+  for _, m in ipairs(nhsGetGroupRoster()) do
+    if m.key == wantKey then
+      return m.unit
+    end
+  end
+  return nil
+end
+
 local function nhsIsRoundLeader()
   return IsInGroup() and UnitIsGroupLeader("player")
+end
+
+-- Seeker "Found:" sync: raid assistants/leaders may use RAID_WARNING; others fall back to RAID.
+local function nhsSeekerFoundSyncChannel()
+  if IsInRaid() then
+    if UnitIsGroupLeader("player") or (UnitIsRaidOfficer and UnitIsRaidOfficer("player")) then
+      return "RAID_WARNING"
+    end
+    return "RAID"
+  end
+  return "PARTY"
+end
+
+-- Raid leader only: temporary assistant so the seeker can send RAID_WARNING for [NHS] Found lines.
+local function nhsLeaderTryPromoteSeekerForRaidWarn()
+  if not nhsIsRoundLeader() or not IsInRaid() or not State.gameLockedSeekerKey then
+    return
+  end
+  local key = State.gameLockedSeekerKey
+  local unit = nhsFindGroupUnitForSortKey(key)
+  if not unit or not UnitExists(unit) then
+    return
+  end
+  if UnitIsGroupLeader(unit) or (UnitIsRaidOfficer and UnitIsRaidOfficer(unit)) then
+    return
+  end
+  if PromoteToAssistant then
+    pcall(PromoteToAssistant, unit)
+  end
+  if UnitIsRaidOfficer and UnitIsRaidOfficer(unit) and not UnitIsGroupLeader(unit) then
+    State.nhsSeekerPromotedAsAssistantKey = key
+  end
+end
+
+local function nhsLeaderDemoteSeekerAssistantIfWePromoted()
+  if not State.nhsSeekerPromotedAsAssistantKey then
+    return
+  end
+  local key = State.nhsSeekerPromotedAsAssistantKey
+  State.nhsSeekerPromotedAsAssistantKey = nil
+  if nhsIsRoundLeader() and IsInRaid() then
+    local unit = nhsFindGroupUnitForSortKey(key)
+    if unit and UnitExists(unit) and not UnitIsGroupLeader(unit) then
+      if UnitIsRaidOfficer and UnitIsRaidOfficer(unit) and DemoteAssistant then
+        pcall(DemoteAssistant, unit)
+      end
+    end
+  end
 end
 
 -- Solo (not in a group) may use game controls; in a group only the leader may.
@@ -1476,9 +1757,11 @@ local function nhsHydrateGameSessionFromSaved()
   ensureSavedVars()
   local s = NHSV.gameRounds
   if not s or not s.sessionActive then
+    nhsSessionHudUpdate()
     return
   end
   if State.gameSessionActive then
+    nhsSessionHudUpdate()
     return
   end
   State.gameSessionActive = true
@@ -1500,9 +1783,11 @@ local function nhsHydrateGameSessionFromSaved()
   else
     State.roundPhase = "none"
   end
+  nhsSessionHudUpdate()
 end
 
 local function nhsResetGameSession()
+  nhsLeaderDemoteSeekerAssistantIfWePromoted()
   State.gameSessionActive = false
   State.gamePhase = "none"
   State.gameCandidateKey = nil
@@ -1514,9 +1799,11 @@ local function nhsResetGameSession()
   State.roundPhase = "none"
   State.remoteRoundActive = false
   State.remoteSeekerKey = nil
+  State.remoteSessionActive = false
   clearFound()
   ensureSavedVars()
   NHSV.gameRounds = nil
+  nhsSessionHudUpdate()
 end
 
 local function nhsPickRandomSeekerMember()
@@ -1540,8 +1827,9 @@ end
 -- Party/raid chat sync — human-readable lines; only the group leader may send.
 local NHS_CHAT_TAG = "[NHS]"
 local NHS_MSG_ROUND_START = "[NHS] Round Start: "
-local NHS_MSG_HIDING = "[NHS] Hiding Starts Now"
-local NHS_MSG_SEEKING = "[NHS] The Seeking Begins!"
+local NHS_MSG_SESSION_START = "[NHS] Game session started"
+local NHS_MSG_HIDING = "[NHS] Hiding Starts Now: "
+local NHS_MSG_SEEKING = "[NHS] The Seeking Begins!: "
 local NHS_MSG_ROUND_OVER = "[NHS] Round is over!"
 local NHS_MSG_GAME_OVER = "[NHS] Game Over! Thanks for playing!"
 local NHS_MSG_FOUND_PREFIX = "[NHS] Found: "
@@ -1561,6 +1849,20 @@ local function nhsGetDesignatedSeekerKey()
     end
   end
   return nil
+end
+
+local function nhsLocalPlayerIsDesignatedSeeker()
+  local me = nhsLocalPlayerSortKey()
+  if not me then
+    return false
+  end
+  if State.remoteRoundActive and State.remoteSeekerKey and me == State.remoteSeekerKey then
+    return true
+  end
+  if State.gameSessionActive and State.gamePhase == "round_active" and State.gameLockedSeekerKey and me == State.gameLockedSeekerKey then
+    return true
+  end
+  return false
 end
 
 local function nhsChatSenderIsDesignatedSeeker(senderName)
@@ -1606,8 +1908,9 @@ local function nhsChatSenderIsGroupLeader(senderName)
   return false
 end
 
+-- Party: normal party chat. Raid: raid warning (center screen) so [NHS] sync stands out.
 local function nhsGroupSyncChannel()
-  return IsInRaid() and "RAID" or "PARTY"
+  return IsInRaid() and "RAID_WARNING" or "PARTY"
 end
 
 local function nhsBroadcastLeaderSync(message)
@@ -1627,40 +1930,40 @@ local function nhsClearRemoteRoundSync()
   clearFound()
 end
 
--- Enter seeker mode: only the designated seeker for the current round may enable it. While a game
--- session is up but no round is running (pick_seeker), nobody may enter seeker mode.
+-- Follower: apply seeker + phase from a leader line (late joiners may miss Round Start / session start).
+local function nhsRemoteFollowerSyncRoundState(key, phase)
+  if type(key) ~= "string" or key == "" then
+    return
+  end
+  key = Ambiguate(key:match("^%s*(.-)%s*$") or key, "none")
+  if key == "" then
+    return
+  end
+  State.remoteSessionActive = true
+  local newRound = not State.remoteRoundActive or State.remoteSeekerKey ~= key
+  if newRound then
+    clearFound()
+  end
+  State.remoteRoundActive = true
+  State.remoteSeekerKey = key
+  State.roundPhase = phase
+end
+
+-- Enter seeker mode: with no session/synced round, allow (preview nameplate/UI options). During a
+-- session, only the designated seeker may enter, and only in Hiding or Searching (not pick-seeker,
+-- preparing/pending, etc.).
 local function nhsMayEnterSeekerMode()
-  if not IsInGroup() then
-    if State.gameSessionActive and State.gamePhase == "pick_seeker" then
-      return false
-    end
-    if State.gameSessionActive and State.gamePhase == "round_active" then
-      if not State.gameLockedSeekerKey then
-        return false
-      end
-      local me = nhsLocalPlayerSortKey()
-      return me ~= nil and State.gameLockedSeekerKey == me
-    end
+  if not State.gameSessionActive and not State.remoteSessionActive and not State.remoteRoundActive then
     return true
   end
-  if State.gameSessionActive and State.gamePhase == "pick_seeker" then
+  if (State.gameSessionActive and State.gamePhase == "pick_seeker")
+    or (State.remoteSessionActive and not State.remoteRoundActive) then
     return false
   end
-  if nhsIsRoundLeader() and State.gameSessionActive and State.gamePhase == "round_active" then
-    if not State.gameLockedSeekerKey then
-      return false
-    end
-    local me = nhsLocalPlayerSortKey()
-    return me ~= nil and State.gameLockedSeekerKey == me
-  end
-  if State.remoteRoundActive and State.remoteSeekerKey then
-    local me = nhsLocalPlayerSortKey()
-    return me ~= nil and State.remoteSeekerKey == me
-  end
-  if State.remoteRoundActive then
+  if not nhsLocalPlayerIsDesignatedSeeker() then
     return false
   end
-  return true
+  return State.roundPhase == "hiding" or State.roundPhase == "searching"
 end
 
 -- Returns true if this was an [NHS] Found: line (handled or ignored); false otherwise.
@@ -1671,6 +1974,20 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
   end
   if not IsInGroup() then
     return true
+  end
+  if not nhsIsRoundLeader() and not nhsGetDesignatedSeekerKey() then
+    local senderKey = Ambiguate(senderName, "none")
+    if senderKey and senderKey ~= "" then
+      for _, m in ipairs(nhsGetGroupRoster()) do
+        if m.key == senderKey then
+          State.remoteSessionActive = true
+          State.remoteRoundActive = true
+          State.remoteSeekerKey = senderKey
+          State.roundPhase = "searching"
+          break
+        end
+      end
+    end
   end
   if not nhsChatSenderIsDesignatedSeeker(senderName) then
     return true
@@ -1708,7 +2025,7 @@ local function nhsBroadcastSeekerFound(foundKey)
   if #msg > 255 then
     return
   end
-  pcall(SendChatMessage, msg, nhsGroupSyncChannel())
+  pcall(SendChatMessage, msg, nhsSeekerFoundSyncChannel())
 end
 
 local function nhsApplyGroupSyncFromLeader(senderName, text)
@@ -1731,29 +2048,56 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     local key = Ambiguate(seekerPart:match("^%s*(.-)%s*$") or seekerPart, "none")
     if key and key ~= "" then
       clearFound()
+      State.remoteSessionActive = true
       State.remoteRoundActive = true
       State.remoteSeekerKey = key
       State.roundPhase = "pending"
+      -- Same ordering as the leader's list (one entry per round); display name from sync key.
+      State.gameSeekerHistory[#State.gameSeekerHistory + 1] = Ambiguate(key, "short")
     end
-  elseif text:match("^%[NHS%]%s*Hiding Starts Now%s*$") then
-    if State.remoteRoundActive then
-      State.roundPhase = "hiding"
+  elseif text:match("^%[NHS%]%s*Game session started%s*$") then
+    State.remoteSessionActive = true
+    wipe(State.gameSeekerHistory)
+  elseif text:match("^%[NHS%]%s*Round is over!%s*$") then
+    nhsClearRemoteRoundSync()
+    if State.seekerMode and setSeekerMode then
+      setSeekerMode(false)
     end
-  elseif text:match("^%[NHS%]%s*The Seeking Begins!%s*$") then
-    if State.remoteRoundActive then
-      State.roundPhase = "searching"
+  elseif text:match("^%[NHS%]%s*Game Over! Thanks for playing!%s*$") then
+    State.remoteSessionActive = false
+    wipe(State.gameSeekerHistory)
+    nhsClearRemoteRoundSync()
+    if State.seekerMode and setSeekerMode then
+      setSeekerMode(false)
     end
-    elseif text:match("^%[NHS%]%s*Round is over!%s*$") or text:match("^%[NHS%]%s*Game Over! Thanks for playing!%s*$") then
-      nhsClearRemoteRoundSync()
-      if State.seekerMode and setSeekerMode then
-        setSeekerMode(false)
+  else
+    local hideKey = text:match("^%[NHS%]%s*Hiding Starts Now:%s*(.+)%s*$")
+    if hideKey then
+      nhsRemoteFollowerSyncRoundState(hideKey, "hiding")
+    elseif text:match("^%[NHS%]%s*Hiding Starts Now%s*$") then
+      State.remoteSessionActive = true
+      if State.remoteRoundActive then
+        State.roundPhase = "hiding"
+      end
+    else
+      local seekKey = text:match("^%[NHS%]%s*The Seeking Begins!:%s*(.+)%s*$")
+      if seekKey then
+        nhsRemoteFollowerSyncRoundState(seekKey, "searching")
+      elseif text:match("^%[NHS%]%s*The Seeking Begins!%s*$") then
+        State.remoteSessionActive = true
+        if State.remoteRoundActive then
+          State.roundPhase = "searching"
+        end
       end
     end
+  end
+  nhsSeekerAutoModeSyncToPhase()
   if UI.RefreshAll then
     UI.RefreshAll()
   elseif UI.RefreshGameRounds then
     UI.RefreshGameRounds()
   end
+  nhsSessionHudUpdate()
 end
 
 -- --- UI -----------------------------------------------------------------------
@@ -1781,20 +2125,60 @@ setSeekerMode = function(enabled)
   end
 end
 
-local function markTargetFound()
+nhsSeekerAutoModeSyncToPhase = function()
+  if State.roundPhase ~= "hiding" and State.roundPhase ~= "searching" then
+    return
+  end
+  if not nhsLocalPlayerIsDesignatedSeeker() or not nhsMayEnterSeekerMode() then
+    return
+  end
+  if State.seekerMode then
+    return
+  end
+  setSeekerMode(true)
+  print("|cff88ccff[NHS]|r Seeker mode enabled automatically for this phase.")
+end
+
+-- opts.quiet: no prints on failure (used when auto-marking on target change).
+local function markTargetFound(opts)
+  opts = opts or {}
+  local quiet = opts.quiet == true
   if not State.seekerMode then
+    if not quiet then
+      print("|cffff8800[NHS]|r Enter seeker mode first.")
+    end
     return
   end
   if State.roundPhase ~= "searching" then
-    print("|cffff8800[NHS]|r Mark found is only available during the searching phase.")
+    if not quiet then
+      print("|cffff8800[NHS]|r Mark found is only available during the searching phase.")
+    end
+    return
+  end
+  local me = nhsLocalPlayerSortKey()
+  local dsk = nhsGetDesignatedSeekerKey()
+  if not me or not dsk or me ~= dsk then
+    if not quiet then
+      print("|cffff8800[NHS]|r Only the designated seeker can mark players found.")
+    end
     return
   end
   if not UnitExists("target") then
-    print("|cffff8800[NHS]|r No target.")
+    if not quiet then
+      print("|cffff8800[NHS]|r No target.")
+    end
     return
   end
   if not UnitIsPlayer("target") then
-    print("|cffff8800[NHS]|r Target a player.")
+    if not quiet then
+      print("|cffff8800[NHS]|r Target a player in your party or raid.")
+    end
+    return
+  end
+  if UnitIsUnit("target", "player") then
+    if not quiet then
+      print("|cffff8800[NHS]|r Pick another group member (not yourself).")
+    end
     return
   end
   local key = nhsUnitSortKey("target")
@@ -1804,6 +2188,18 @@ local function markTargetFound()
       return
     end
     key = Ambiguate(name, "none")
+  end
+  if not nhsUnitIsInGroupRoster("target") then
+    if not quiet then
+      print("|cffff8800[NHS]|r Target must be in your party or raid.")
+    end
+    return
+  end
+  if key == dsk then
+    if not quiet then
+      print("|cffff8800[NHS]|r You cannot mark the seeker as found.")
+    end
+    return
   end
   if State.foundSet[key] then
     return
@@ -1817,6 +2213,20 @@ local function markTargetFound()
     UI.RefreshFound()
   end
 end
+
+local nhsSeekerAutoMarkFrame = CreateFrame("Frame")
+nhsSeekerAutoMarkFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+nhsSeekerAutoMarkFrame:SetScript("OnEvent", function()
+  if not State.seekerMode or State.roundPhase ~= "searching" then
+    return
+  end
+  local me = nhsLocalPlayerSortKey()
+  local dsk = nhsGetDesignatedSeekerKey()
+  if not me or not dsk or me ~= dsk then
+    return
+  end
+  markTargetFound({ quiet = true })
+end)
 
 local function buildMainFrame()
   -- Unnamed frame avoids CreateFrame failing if a stale global name already exists.
@@ -1968,11 +2378,18 @@ local function buildMainFrame()
   foundBtn:SetText("Mark target as found")
   foundBtn:SetPoint("TOPLEFT", seekerBtn, "BOTTOMLEFT", 0, -8)
 
+  local hiddenList = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  hiddenList:SetWidth(328)
+  hiddenList:SetJustifyH("LEFT")
+  hiddenList:SetSpacing(2)
+  hiddenList:SetPoint("TOPLEFT", foundBtn, "BOTTOMLEFT", 0, -8)
+  hiddenList:SetText("Hidden: —")
+
   local foundList = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   foundList:SetWidth(328)
   foundList:SetJustifyH("LEFT")
   foundList:SetSpacing(2)
-  foundList:SetPoint("TOPLEFT", foundBtn, "BOTTOMLEFT", 0, -8)
+  foundList:SetPoint("TOPLEFT", hiddenList, "BOTTOMLEFT", 0, -6)
   foundList:SetText("Found: (none)")
 
   local roundHintText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -2352,6 +2769,7 @@ local function buildMainFrame()
     local can = housingAvailable()
     pinBtn:SetEnabled(can)
     sharePinBtn:SetEnabled(can)
+    nhsSessionHudUpdate()
   end
 
   local function refreshHouseList()
@@ -2404,6 +2822,7 @@ local function buildMainFrame()
   end)
 
   local function refreshFoundList()
+    hiddenList:SetText("Hidden: " .. nhsSessionHudHiddenText())
     local parts = {}
     for i = 1, #State.foundOrder do
       parts[#parts + 1] = Ambiguate(State.foundOrder[i], "short")
@@ -2547,8 +2966,20 @@ local function buildMainFrame()
     viewPastSeekersBtn:SetPoint("LEFT", seekerBtn, "RIGHT", 8, 0)
     foundBtn:ClearAllPoints()
     foundBtn:SetPoint("TOPLEFT", seekerBtn, "BOTTOMLEFT", 0, -8)
+    hiddenList:ClearAllPoints()
+    hiddenList:SetPoint("TOPLEFT", foundBtn, "BOTTOMLEFT", 0, -8)
     foundList:ClearAllPoints()
-    foundList:SetPoint("TOPLEFT", foundBtn, "BOTTOMLEFT", 0, -8)
+    foundList:SetPoint("TOPLEFT", hiddenList, "BOTTOMLEFT", 0, -6)
+  end
+
+  local function syncSeekerAndFoundButtons()
+    seekerBtn:SetText(State.seekerMode and "Leave seeker mode" or "Enter seeker mode")
+    if State.seekerMode then
+      seekerBtn:SetEnabled(true)
+    else
+      seekerBtn:SetEnabled(nhsMayEnterSeekerMode())
+    end
+    foundBtn:SetEnabled(State.seekerMode and State.roundPhase == "searching")
   end
 
   local function refreshGameRounds()
@@ -2590,6 +3021,7 @@ local function buildMainFrame()
             .. "Use End game session below to clear saved state."
         )
         viewPastSeekersBtn:SetEnabled(#State.gameSeekerHistory > 0)
+        syncSeekerAndFoundButtons()
         syncMainFrameHeight()
         return
       end
@@ -2607,7 +3039,7 @@ local function buildMainFrame()
         roundHintText:Show()
         if State.roundPhase == "searching" then
           roundHintText:SetText(
-            "If you are the seeker, use Enter seeker mode, then mark players when you find them."
+            "If you are the seeker, enter seeker mode, then target party/raid members to mark found (or use the button)."
           )
         elseif State.roundPhase == "hiding" then
           roundHintText:SetText(
@@ -2618,7 +3050,8 @@ local function buildMainFrame()
             "Preparing — the leader will start a hiding countdown when ready."
           )
         end
-        viewPastSeekersBtn:SetEnabled(false)
+        viewPastSeekersBtn:SetEnabled(#State.gameSeekerHistory > 0)
+        syncSeekerAndFoundButtons()
         syncMainFrameHeight()
         return
       end
@@ -2631,7 +3064,8 @@ local function buildMainFrame()
       layoutGameplayBlock(f, 16, -40, false)
       roundPhaseLabel:Hide()
       gameplaySeekerLbl:SetText(gameplayCurrentSeekerCaption())
-      viewPastSeekersBtn:SetEnabled(false)
+      viewPastSeekersBtn:SetEnabled(#State.gameSeekerHistory > 0)
+      syncSeekerAndFoundButtons()
       syncMainFrameHeight()
       return
     end
@@ -2719,7 +3153,9 @@ local function buildMainFrame()
     gameplaySeekerLbl:SetText(gameplayCurrentSeekerCaption())
 
     viewPastSeekersBtn:SetEnabled(#State.gameSeekerHistory > 0)
+    syncSeekerAndFoundButtons()
     syncMainFrameHeight()
+    nhsSessionHudUpdate()
   end
 
   function UI.RefreshGameRounds()
@@ -2729,17 +3165,12 @@ local function buildMainFrame()
   function UI.RefreshFound()
     refreshFoundList()
     syncMainFrameHeight()
+    nhsSessionHudUpdate()
   end
 
   function UI.RefreshAll()
     syncSeekerUiOptionsFromSaved()
-    seekerBtn:SetText(State.seekerMode and "Leave seeker mode" or "Enter seeker mode")
-    if State.seekerMode then
-      seekerBtn:SetEnabled(true)
-    else
-      seekerBtn:SetEnabled(nhsMayEnterSeekerMode())
-    end
-    foundBtn:SetEnabled(State.seekerMode and State.roundPhase == "searching")
+    syncSeekerAndFoundButtons()
     refreshBtn:SetEnabled(true)
     refreshHouseList()
     local canHousing = housingAvailable()
@@ -2792,6 +3223,9 @@ local function buildMainFrame()
     wipe(State.gameSeekerHistory)
     wipe(State.gameRotationUsed)
     nhsPersistGameSessionToSaved()
+    if IsInGroup() and nhsIsRoundLeader() then
+      nhsBroadcastLeaderSync(NHS_MSG_SESSION_START)
+    end
     print("|cff88ccff[NHS]|r Game session started. Random a seeker, then confirm seeker to start the round.")
     refreshGameRounds()
   end)
@@ -2852,10 +3286,15 @@ local function buildMainFrame()
       local phaseLabel = (self._kind == "hide") and "Hiding" or "Searching"
       if self._kind == "hide" then
         State.roundPhase = "hiding"
-        nhsBroadcastLeaderSync(NHS_MSG_HIDING)
+        if State.gameLockedSeekerKey then
+          nhsBroadcastLeaderSync(NHS_MSG_HIDING .. State.gameLockedSeekerKey)
+        end
       else
         State.roundPhase = "searching"
-        nhsBroadcastLeaderSync(NHS_MSG_SEEKING)
+        if State.gameLockedSeekerKey then
+          nhsBroadcastLeaderSync(NHS_MSG_SEEKING .. State.gameLockedSeekerKey)
+        end
+        nhsLeaderTryPromoteSeekerForRaidWarn()
       end
       print(
         ("|cff88ccff[NHS]|r %s — %s (%d s)."):format(phaseLabel, pr.label, sec)
@@ -2863,6 +3302,7 @@ local function buildMainFrame()
       if UI.RefreshAll then
         UI.RefreshAll()
       end
+      nhsSeekerAutoModeSyncToPhase()
     else
       print("|cffff8800[NHS]|r " .. tostring(err))
     end
@@ -2879,6 +3319,7 @@ local function buildMainFrame()
     if not nhsMayUseLeaderGameActions() or State.gamePhase ~= "round_active" then
       return
     end
+    nhsLeaderDemoteSeekerAssistantIfWePromoted()
     State.gamePhase = "pick_seeker"
     State.gameLockedSeekerKey = nil
     State.gameLockedSeekerDisplay = nil
@@ -3023,6 +3464,7 @@ local function buildMainFrame()
   UI.howToPlayFrame = htpf
   UI.viewHouseListBtn = viewHouseListBtn
   UI.frame = f
+  nhsSessionHudUpdate()
 end
 
 -- --- Minimap button (no external libs) --------------------------------------
@@ -3074,7 +3516,7 @@ local function nhsMinimapOrbitRadius()
   end
   local w = Minimap:GetWidth() or 140
   local half = w * 0.5
-  return half + 22
+  return half + 10
 end
 
 local function nhsMinimapButton_ApplyPosition()
@@ -3126,25 +3568,35 @@ local function nhsInitMinimapButton()
   b:SetMovable(true)
   b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   b:RegisterForDrag("RightButton")
-  -- Use the button's normal/pushed texture slots so the icon is truly centered on Retail;
-  -- a plain child texture can end up with TOPLEFT pinned at the button center on some Button layouts.
-  b:SetNormalTexture("Interface\\Icons\\Ability_Stealth")
-  b:SetPushedTexture("Interface\\Icons\\Ability_Stealth")
-  local function nhsMinimapButton_StyleIconTexture(tex)
-    if not tex then
-      return
-    end
-    tex:SetTexCoord(0, 1, 0, 1)
-    tex:ClearAllPoints()
-    tex:SetSize(20, 20)
-    tex:SetPoint("CENTER", b, "CENTER", 0, 0)
+  -- Icon: direct texture on the button (no child Frame + SetAllPoints); TOPLEFT from CENTER ± half
+  -- size keeps the spell art centered on the 32×32 hit box.
+  -- Ring: same center as the button; use the asset full-frame (cropping shifts the gold vs the icon).
+  local iconSize = 20
+  local ringSize = 53
+  local halfIcon = iconSize / 2
+  local icon = b:CreateTexture(nil, "BACKGROUND")
+  icon:SetTexture("Interface\\Icons\\Ability_Stealth")
+  icon:SetTexCoord(0, 1, 0, 1)
+  icon:SetSize(iconSize, iconSize)
+  icon:ClearAllPoints()
+  icon:SetPoint("TOPLEFT", b, "CENTER", -halfIcon, halfIcon)
+  if icon.SetSnapToPixelGrid then
+    icon:SetSnapToPixelGrid(false)
   end
-  nhsMinimapButton_StyleIconTexture(b:GetNormalTexture())
-  nhsMinimapButton_StyleIconTexture(b:GetPushedTexture())
+  if icon.SetTexelSnappingBias then
+    icon:SetTexelSnappingBias(0)
+  end
   local ring = b:CreateTexture(nil, "OVERLAY")
   ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-  ring:SetSize(52, 52)
-  ring:SetPoint("CENTER", b, "CENTER", 0, 0)
+  ring:SetSize(ringSize, ringSize)
+  ring:SetTexCoord(0, 1, 0, 1)
+  ring:SetPoint("CENTER", b, "CENTER", NHSV.minimapRingOffsetX, NHSV.minimapRingOffsetY)
+  if ring.SetSnapToPixelGrid then
+    ring:SetSnapToPixelGrid(false)
+  end
+  if ring.SetTexelSnappingBias then
+    ring:SetTexelSnappingBias(0)
+  end
   b:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
   b:SetScript("OnClick", function(_, btn)
     if btn == "LeftButton" then
@@ -3231,6 +3683,7 @@ loader:RegisterEvent("PARTY_LEADER_CHANGED")
 loader:SetScript("OnEvent", function(_, event, name)
   if event == "ADDON_LOADED" and name == ADDON_NAME then
     ensureSavedVars()
+    nhsInitSessionHud()
     nhsHydrateGameSessionFromSaved()
     nhsPersistGameSessionToSaved()
     nhsInitMinimapButton()
@@ -3239,12 +3692,14 @@ loader:SetScript("OnEvent", function(_, event, name)
     )
   elseif event == "PLAYER_ENTERING_WORLD" then
     ensureSavedVars()
+    nhsInitSessionHud()
     nhsInitMinimapButton()
     nhsHydrateGameSessionFromSaved()
     nhsPersistGameSessionToSaved()
     if UI.RefreshGameRounds then
       UI.RefreshGameRounds()
     end
+    nhsSessionHudUpdate()
     if not didPewImport then
       didPewImport = true
       housingInvalidate()
@@ -3273,6 +3728,7 @@ nhsSyncChatFrame:RegisterEvent("CHAT_MSG_PARTY")
 nhsSyncChatFrame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
 nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID")
 nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID_LEADER")
+nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID_WARNING")
 nhsSyncChatFrame:SetScript("OnEvent", function(_, _, text, sender)
   if type(text) ~= "string" or text:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
     return
