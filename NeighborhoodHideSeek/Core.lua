@@ -54,7 +54,7 @@ local function ensureSavedVars()
   if NHSV.minimapButtonAngle == nil then
     NHSV.minimapButtonAngle = math.rad(200)
   end
-  -- Nudge MiniMap-TrackingBorder only (spell icon stays centered on the button).
+  -- Fine-tune ring vs icon (default 0; added to built-in CENTER nudge in nhsInitMinimapButton).
   if NHSV.minimapRingOffsetX == nil then
     NHSV.minimapRingOffsetX = 0
   end
@@ -3570,9 +3570,12 @@ local function nhsInitMinimapButton()
   b:RegisterForDrag("RightButton")
   -- Icon: direct texture on the button (no child Frame + SetAllPoints); TOPLEFT from CENTER ± half
   -- size keeps the spell art centered on the 32×32 hit box.
-  -- Ring: same center as the button; use the asset full-frame (cropping shifts the gold vs the icon).
   local iconSize = 20
-  local ringSize = 53
+  -- MiniMap-TrackingBorder: the gold ring sits low/right inside the bitmap; a centered 54×54 quad leaves the
+  -- circle’s bottom-right on the icon. Nudge the ring frame down/right (positive x, negative y on CENTER).
+  local ringSize = 54
+  local ringCenterNudgeX = 10
+  local ringCenterNudgeY = -11
   local halfIcon = iconSize / 2
   local icon = b:CreateTexture(nil, "BACKGROUND")
   icon:SetTexture("Interface\\Icons\\Ability_Stealth")
@@ -3590,7 +3593,14 @@ local function nhsInitMinimapButton()
   ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
   ring:SetSize(ringSize, ringSize)
   ring:SetTexCoord(0, 1, 0, 1)
-  ring:SetPoint("CENTER", b, "CENTER", NHSV.minimapRingOffsetX, NHSV.minimapRingOffsetY)
+  ring:ClearAllPoints()
+  ring:SetPoint(
+    "CENTER",
+    b,
+    "CENTER",
+    ringCenterNudgeX + (NHSV.minimapRingOffsetX or 0),
+    ringCenterNudgeY + (NHSV.minimapRingOffsetY or 0)
+  )
   if ring.SetSnapToPixelGrid then
     ring:SetSnapToPixelGrid(false)
   end
