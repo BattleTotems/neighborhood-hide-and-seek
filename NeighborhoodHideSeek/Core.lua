@@ -1837,6 +1837,33 @@ local NHS_MSG_ROUND_OVER = "[NHS] Round is over!"
 local NHS_MSG_GAME_OVER = "[NHS] Game Over! Thanks for playing!"
 local NHS_MSG_FOUND_PREFIX = "[NHS] Found: "
 
+-- Addon comm: same human-readable NHS line as payload (max 255 bytes). Sync applies via CHAT_MSG_ADDON
+-- so we avoid combat "secret string" restrictions on parsing CHAT_MSG_RAID / PARTY text.
+local NHS_ADDON_PREFIX = "NeighborhoodHS"
+
+local function nhsAddonSyncChatType()
+  if IsInRaid() then
+    return "RAID"
+  end
+  if IsInInstance() then
+    return "INSTANCE_CHAT"
+  end
+  return "PARTY"
+end
+
+local function nhsSendAddonSyncPayload(message)
+  if not message or message == "" or #message > 255 then
+    return
+  end
+  if not IsInGroup() then
+    return
+  end
+  if not C_ChatInfo or not C_ChatInfo.SendAddonMessage then
+    return
+  end
+  pcall(C_ChatInfo.SendAddonMessage, NHS_ADDON_PREFIX, message, nhsAddonSyncChatType())
+end
+
 local function nhsLocalPlayerSortKey()
   return nhsUnitSortKey("player")
 end
@@ -1924,6 +1951,7 @@ local function nhsBroadcastLeaderSync(message)
     return
   end
   pcall(SendChatMessage, message, nhsGroupSyncChannel())
+  nhsSendAddonSyncPayload(message)
 end
 
 local function nhsClearRemoteRoundSync()
@@ -2029,6 +2057,7 @@ local function nhsBroadcastSeekerFound(foundKey)
     return
   end
   pcall(SendChatMessage, msg, nhsSeekerFoundSyncChannel())
+  nhsSendAddonSyncPayload(msg)
 end
 
 local function nhsApplyGroupSyncFromLeader(senderName, text)
@@ -3695,6 +3724,9 @@ loader:RegisterEvent("GROUP_ROSTER_UPDATE")
 loader:RegisterEvent("PARTY_LEADER_CHANGED")
 loader:SetScript("OnEvent", function(_, event, name)
   if event == "ADDON_LOADED" and name == ADDON_NAME then
+    if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+      C_ChatInfo.RegisterAddonMessagePrefix(NHS_ADDON_PREFIX)
+    end
     ensureSavedVars()
     nhsInitSessionHud()
     nhsHydrateGameSessionFromSaved()
@@ -3737,21 +3769,19 @@ loader:SetScript("OnEvent", function(_, event, name)
 end)
 
 local nhsSyncChatFrame = CreateFrame("Frame")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_PARTY")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID_LEADER")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID_WARNING")
-nhsSyncChatFrame:SetScript("OnEvent", function(_, _, text, sender)
-  -- Chat message text is a restricted "secret" string during combat lockdown; any :sub() / pattern match errors.
-  if InCombatLockdown() then
+nhsSyncChatFrame:RegisterEvent("CHAT_MSG_ADDON")
+nhsSyncChatFrame:SetScript("OnEvent", function(_, _, prefix, msg, channel, sender)
+  if prefix ~= NHS_ADDON_PREFIX then
     return
   end
-  if type(text) ~= "string" or text:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
+  if channel ~= "PARTY" and channel ~= "RAID" and channel ~= "INSTANCE_CHAT" then
     return
   end
-  if nhsApplyFoundSyncFromChat(sender, text) then
+  if type(msg) ~= "string" or msg:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
     return
   end
-  nhsApplyGroupSyncFromLeader(sender, text)
+  if nhsApplyFoundSyncFromChat(sender, msg) then
+    return
+  end
+  nhsApplyGroupSyncFromLeader(sender, msg)
 end)
