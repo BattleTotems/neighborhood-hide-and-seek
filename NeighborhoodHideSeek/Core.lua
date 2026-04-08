@@ -6,6 +6,9 @@
 
 -- Must match your AddOns folder name (used for ADDON_LOADED and SavedVariables).
 local ADDON_NAME = "NeighborhoodHideSeek"
+-- Minimap button art: PNG works on many Retail builds; if the icon is green or missing, export the same
+-- image as MinimapIcon.tga (power-of-2 size) in Textures/ and switch the extension below.
+local NHS_MINIMAP_ICON_TEXTURE = "Interface\\AddOns\\NeighborhoodHideSeek\\Textures\\MinimapIcon.tga"
 
 -- Ephemeral session state (not saved between sessions).
 local State = {
@@ -3578,7 +3581,7 @@ local function nhsInitMinimapButton()
   local ringCenterNudgeY = -11
   local halfIcon = iconSize / 2
   local icon = b:CreateTexture(nil, "BACKGROUND")
-  icon:SetTexture("Interface\\Icons\\Ability_Stealth")
+  icon:SetTexture(NHS_MINIMAP_ICON_TEXTURE)
   icon:SetTexCoord(0, 1, 0, 1)
   icon:SetSize(iconSize, iconSize)
   icon:ClearAllPoints()
@@ -3740,6 +3743,10 @@ nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID")
 nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID_LEADER")
 nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID_WARNING")
 nhsSyncChatFrame:SetScript("OnEvent", function(_, _, text, sender)
+  -- Chat message text is a restricted "secret" string during combat lockdown; any :sub() / pattern match errors.
+  if InCombatLockdown() then
+    return
+  end
   if type(text) ~= "string" or text:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
     return
   end
