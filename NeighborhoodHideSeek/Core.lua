@@ -88,6 +88,9 @@ local function ensureSavedVars()
   if NHSV.selectHouseFromSavedList == nil then
     NHSV.selectHouseFromSavedList = true
   end
+  if NHSV.useSpinnerRandomSelection == nil then
+    NHSV.useSpinnerRandomSelection = true
+  end
 end
 
 --[[
@@ -812,6 +815,26 @@ local function plotSortKeyFromEntry(entry, rowIndex)
     end
   end
   return rowIndex
+end
+
+-- For saved rows we only have label + stable key (no API entry). Prefer leading "12 - Name" plot style.
+local function nhsPlotSortKeyFromSavedLabelOrKey(label, stableKey)
+  local lab = type(label) == "string" and label or ""
+  local head = lab:match("^%s*(%d+)%s*%-%s*") or lab:match("^%s*(%d+)%s*$")
+  local tn = tonumber(head)
+  if tn then
+    return tn
+  end
+  if type(stableKey) == "string" then
+    tn = tonumber((stableKey:match("^(%d+)")))
+    if tn then
+      return tn
+    end
+  end
+  if lab ~= "" then
+    return lab
+  end
+  return tostring(stableKey or "")
 end
 
 local function sortHouseListInPlace(list)
@@ -1867,26 +1890,54 @@ end
 -- Gameplay house pool (pick_house): saved sizes vs current visitable list (Options).
 local function nhsGameplaySavedHousePoolEntries()
   ensureSavedVars()
-  local pool = {}
+  local wrapped = {}
   for key, idx in pairs(NHSV.houseSizes) do
     idx = tonumber(idx)
     if idx and idx >= 1 and idx <= #ROUND_PRESETS then
       local label = NHSV.houseLabels[key] or key
       local disp = ("%s [%s]"):format(label, ROUND_PRESETS[idx].label)
-      pool[#pool + 1] = {
-        rotKey = key,
-        display = disp,
-        liveEntry = nil,
-        liveIndex = nil,
+      wrapped[#wrapped + 1] = {
+        k = nhsPlotSortKeyFromSavedLabelOrKey(label, key),
+        ord = #wrapped + 1,
+        row = {
+          rotKey = key,
+          display = disp,
+          liveEntry = nil,
+          liveIndex = nil,
+        },
       }
     end
+  end
+  table.sort(wrapped, function(a, b)
+    local ka, kb = a.k, b.k
+    if type(ka) == "number" and type(kb) == "number" and ka ~= kb then
+      return ka < kb
+    end
+    local na, nb = tonumber(tostring(ka)), tonumber(tostring(kb))
+    if na and nb and na ~= nb then
+      return na < nb
+    end
+    local sa, sb = tostring(ka), tostring(kb)
+    if sa ~= sb then
+      return sa < sb
+    end
+    return a.ord < b.ord
+  end)
+  local pool = {}
+  for i = 1, #wrapped do
+    pool[i] = wrapped[i].row
   end
   return pool
 end
 
 local function nhsGameplayCurrentHousePoolEntries(rows)
-  local pool = {}
+  local list = {}
   for i, entry in ipairs(rows or {}) do
+    list[i] = entry
+  end
+  sortHouseListInPlace(list)
+  local pool = {}
+  for i, entry in ipairs(list) do
     local rk = nhsHouseStableKeyFromEntry(entry)
     if not rk then
       rk = "__idx:" .. tostring(i)
@@ -1909,7 +1960,8 @@ local function nhsBuildGameplayHousePickPool(housesCache)
   return nhsGameplayCurrentHousePoolEntries(housesCache)
 end
 
-local function nhsPickRandomGameplayHouse(housesCache)
+-- Eligible pool for random house (same rules as pick); used by spin UI and nhsPickRandomGameplayHouse.
+local function nhsGameplayRandomHouseEligible(housesCache)
   local pool = nhsBuildGameplayHousePickPool(housesCache)
   if #pool == 0 then
     return nil,
@@ -1926,6 +1978,14 @@ local function nhsPickRandomGameplayHouse(housesCache)
   if #elig == 0 then
     wipe(State.gameHouseRotationUsed)
     elig = pool
+  end
+  return elig, nil
+end
+
+local function nhsPickRandomGameplayHouse(housesCache)
+  local elig, err = nhsGameplayRandomHouseEligible(housesCache)
+  if not elig then
+    return nil, err
   end
   return elig[math.random(1, #elig)]
 end
@@ -2386,7 +2446,7 @@ local function nhsResetGameSession()
   nhsSessionHudUpdate()
 end
 
-local function nhsPickRandomSeekerMember()
+local function nhsRandomSeekerEligible()
   local roster = nhsGetGroupRoster()
   if #roster == 0 then
     return nil, "No players in group."
@@ -2401,7 +2461,15 @@ local function nhsPickRandomSeekerMember()
     wipe(State.gameRotationUsed)
     eligible = roster
   end
-  return eligible[math.random(1, #eligible)]
+  return eligible, nil
+end
+
+local function nhsPickRandomSeekerMember()
+  local elig, err = nhsRandomSeekerEligible()
+  if not elig then
+    return nil, err
+  end
+  return elig[math.random(1, #elig)]
 end
 
 -- Party/raid chat sync — human-readable lines; only the group leader may send.
@@ -3214,7 +3282,7 @@ local function buildMainFrame()
 
   -- Options: seeker UI visibility (party/raid frames, minimap).
   local optf = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-  optf:SetSize(340, 278)
+  optf:SetSize(340, 302)
   optf:SetClampedToScreen(true)
   optf:SetMovable(true)
   optf:EnableMouse(true)
@@ -3271,10 +3339,19 @@ local function buildMainFrame()
   cbHouseSavedText:SetJustifyH("LEFT")
   cbHouseSavedText:SetText("Gameplay: choose house from saved list (off = current neighborhood list)")
 
+  local cbSpinnerRandom = CreateFrame("CheckButton", nil, optf, "UICheckButtonTemplate")
+  cbSpinnerRandom:SetSize(22, 22)
+  cbSpinnerRandom:SetPoint("TOPLEFT", 16, -136)
+  local cbSpinnerRandomText = optf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  cbSpinnerRandomText:SetPoint("LEFT", cbSpinnerRandom, "RIGHT", 4, 0)
+  cbSpinnerRandomText:SetWidth(292)
+  cbSpinnerRandomText:SetJustifyH("LEFT")
+  cbSpinnerRandomText:SetText("Use spinner random selection method (house & seeker)")
+
   local optSeekerSep = optf:CreateTexture(nil, "ARTWORK", nil, 1)
   optSeekerSep:SetColorTexture(1, 1, 1, 0.12)
   optSeekerSep:SetSize(300, 1)
-  optSeekerSep:SetPoint("TOPLEFT", 20, -136)
+  optSeekerSep:SetPoint("TOPLEFT", 20, -160)
 
   local optSeekerHint = optf:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   optSeekerHint:SetPoint("TOPLEFT", optSeekerSep, "BOTTOMLEFT", 0, -10)
@@ -3307,6 +3384,7 @@ local function buildMainFrame()
     cbParty:SetChecked(NHSV.hideGroupFramesInSeeker ~= false)
     cbMini:SetChecked(NHSV.hideMinimapInSeeker == true)
     cbHouseSaved:SetChecked(NHSV.selectHouseFromSavedList ~= false)
+    cbSpinnerRandom:SetChecked(NHSV.useSpinnerRandomSelection ~= false)
     syncSeekerModeOptionButton()
   end
 
@@ -3315,6 +3393,7 @@ local function buildMainFrame()
     NHSV.hideGroupFramesInSeeker = cbParty:GetChecked() and true or false
     NHSV.hideMinimapInSeeker = cbMini:GetChecked() and true or false
     NHSV.selectHouseFromSavedList = cbHouseSaved:GetChecked() and true or false
+    NHSV.useSpinnerRandomSelection = cbSpinnerRandom:GetChecked() and true or false
     if State.seekerMode then
       if NHSV.hideGroupFramesInSeeker or NHSV.hideMinimapInSeeker then
         seekerUiPoll:Show()
@@ -3327,6 +3406,7 @@ local function buildMainFrame()
   cbParty:SetScript("OnClick", applySeekerUiOptionChange)
   cbMini:SetScript("OnClick", applySeekerUiOptionChange)
   cbHouseSaved:SetScript("OnClick", applySeekerUiOptionChange)
+  cbSpinnerRandom:SetScript("OnClick", applySeekerUiOptionChange)
 
   local optCloseBtn = CreateFrame("Button", nil, optf, "UIPanelCloseButton")
   optCloseBtn:SetPoint("TOPRIGHT", -6, -6)
@@ -3832,6 +3912,120 @@ local function buildMainFrame()
   end)
   pastRoundsFrame:Hide()
 
+  local NHS_RANDOM_WHEEL_MAX = 28
+  local NHS_RANDOM_WHEEL_SPOKE_LEN = 98
+  local NHS_RANDOM_WHEEL_LABEL_R = 66
+
+  local randomPickFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+  randomPickFrame:SetSize(360, 420)
+  randomPickFrame:SetClampedToScreen(true)
+  randomPickFrame:SetMovable(true)
+  randomPickFrame:EnableMouse(true)
+  randomPickFrame:RegisterForDrag("LeftButton")
+  randomPickFrame:SetScript("OnDragStart", function(self)
+    self:StartMoving()
+  end)
+  randomPickFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    ensureSavedVars()
+    local p, _, rp, x, y = self:GetPoint(1)
+    NHSV.randomPickFramePoint = { p, rp or "UIParent", x, y }
+  end)
+  randomPickFrame:SetBackdrop({
+    bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true,
+    tileSize = 32,
+    edgeSize = 16,
+    insets = { left = 8, right = 8, top = 8, bottom = 8 },
+  })
+  randomPickFrame:SetBackdropColor(0, 0, 0, 0.92)
+  local randomPickTitle = randomPickFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  randomPickTitle:SetPoint("TOP", 0, -14)
+  randomPickTitle:SetText("Random pick")
+  local randomPickSubtitle = randomPickFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  randomPickSubtitle:SetPoint("TOP", randomPickTitle, "BOTTOM", 0, -4)
+  randomPickSubtitle:SetWidth(320)
+  randomPickSubtitle:SetJustifyH("CENTER")
+  randomPickSubtitle:SetText("—")
+
+  local randomWheelArea = CreateFrame("Frame", nil, randomPickFrame)
+  randomWheelArea:SetSize(268, 268)
+  randomWheelArea:SetPoint("TOP", randomPickFrame, "TOP", 0, -56)
+
+  local randomWheelBg = randomWheelArea:CreateTexture(nil, "BACKGROUND")
+  randomWheelBg:SetTexture("Interface\\Buttons\\WHITE8X8")
+  randomWheelBg:SetVertexColor(0.06, 0.07, 0.1, 1)
+  randomWheelBg:SetSize(228, 228)
+  randomWheelBg:SetPoint("CENTER", randomWheelArea, "CENTER", 0, 0)
+
+  local randomWheelHub = CreateFrame("Frame", nil, randomWheelArea)
+  randomWheelHub:SetSize(2, 2)
+  randomWheelHub:SetPoint("CENTER", randomWheelArea, "CENTER", 0, 0)
+
+  local randomWheelPointer = randomPickFrame:CreateTexture(nil, "OVERLAY")
+  randomWheelPointer:SetTexture("Interface\\Buttons\\WHITE8X8")
+  randomWheelPointer:SetVertexColor(1, 0.22, 0.12, 1)
+  randomWheelPointer:SetSize(16, 36)
+  randomWheelPointer:SetPoint("TOP", randomWheelArea, "TOP", 0, 10)
+
+  local randomWheelSpokes = {}
+  local randomWheelLabels = {}
+  for wi = 1, NHS_RANDOM_WHEEL_MAX do
+    local sp = randomWheelHub:CreateTexture(nil, "ARTWORK")
+    sp:SetTexture("Interface\\Buttons\\WHITE8X8")
+    sp:SetSize(NHS_RANDOM_WHEEL_SPOKE_LEN, 22)
+    sp:SetPoint("LEFT", randomWheelHub, "CENTER", 0, 0)
+    sp:Hide()
+    randomWheelSpokes[wi] = sp
+    local fs = randomWheelHub:CreateFontString(nil, "OVERLAY")
+    fs:SetWidth(96)
+    fs:SetJustifyH("CENTER")
+    fs:SetFontObject("GameFontNormalSmall")
+    fs:Hide()
+    randomWheelLabels[wi] = fs
+  end
+
+  local nhsRandomWheelRotationOk = (randomWheelSpokes[1] and type(randomWheelSpokes[1].SetRotation) == "function")
+
+  local randomPickStatus = randomPickFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  randomPickStatus:SetPoint("TOP", randomWheelArea, "BOTTOM", 0, -10)
+  randomPickStatus:SetWidth(320)
+  randomPickStatus:SetJustifyH("CENTER")
+  randomPickStatus:SetText("")
+
+  local randomPickCloseBtn = CreateFrame("Button", nil, randomPickFrame, "UIPanelButtonTemplate")
+  randomPickCloseBtn:SetSize(160, 24)
+  randomPickCloseBtn:SetText("Close")
+  randomPickCloseBtn:SetPoint("BOTTOM", randomPickFrame, "BOTTOM", 0, 16)
+  randomPickCloseBtn:SetScript("OnClick", function()
+    if randomPickFrame.nhsSpinning then
+      return
+    end
+    randomPickFrame:Hide()
+  end)
+
+  local randomPickFrameCloseX = CreateFrame("Button", nil, randomPickFrame, "UIPanelCloseButton")
+  randomPickFrameCloseX:SetPoint("TOPRIGHT", -6, -6)
+  randomPickFrameCloseX:SetScript("OnClick", function()
+    if randomPickFrame.nhsSpinning then
+      return
+    end
+    randomPickFrame:Hide()
+  end)
+
+  randomPickFrame:SetScript("OnHide", function(self)
+    self:SetScript("OnUpdate", nil)
+    self.nhsSpinning = false
+    self.nhsSpinPhase = nil
+    self.nhsSpinOnPicked = nil
+    self.nhsSpinContext = nil
+    randomPickCloseBtn:Enable()
+    randomPickFrameCloseX:Enable()
+  end)
+
+  randomPickFrame:Hide()
+
   local gsfp = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
   gsfp:SetSize(300, 380)
   gsfp:SetClampedToScreen(true)
@@ -3866,7 +4060,7 @@ local function buildMainFrame()
   gsfpStatus:SetText("—")
   local gsfpScroll = CreateFrame("ScrollFrame", nil, gsfp)
   gsfpScroll:SetPoint("TOPLEFT", 16, -62)
-  gsfpScroll:SetSize(268, 300)
+  gsfpScroll:SetSize(268, 258)
   gsfpScroll:EnableMouse(true)
   gsfpScroll:EnableMouseWheel(true)
   gsfpScroll:SetScript("OnMouseWheel", function(self, delta)
@@ -3883,6 +4077,11 @@ local function buildMainFrame()
   gsfpScrollChild:SetSize(268, 1)
   gsfpScrollChild:EnableMouse(true)
   gsfpScroll:SetScrollChild(gsfpScrollChild)
+  local gsfpSpinRandomBtn = CreateFrame("Button", nil, gsfp, "UIPanelButtonTemplate")
+  gsfpSpinRandomBtn:SetSize(268, 24)
+  gsfpSpinRandomBtn:SetText("Spin random seeker")
+  gsfpSpinRandomBtn:SetPoint("BOTTOM", gsfp, "BOTTOM", 0, 12)
+  gsfpSpinRandomBtn:Hide()
   local gsfpCloseBtn = CreateFrame("Button", nil, gsfp, "UIPanelCloseButton")
   gsfpCloseBtn:SetPoint("TOPRIGHT", -6, -6)
   gsfpCloseBtn:SetScript("OnClick", function()
@@ -3912,6 +4111,7 @@ local function buildMainFrame()
     ghfp:Hide()
     ghpf:Hide()
     pastRoundsFrame:Hide()
+    randomPickFrame:Hide()
     gsfp:Hide()
     f:Hide()
   end)
@@ -4097,6 +4297,8 @@ local function buildMainFrame()
     end
     gsfpScrollChild:SetHeight(math.max(y + 8, 1))
     gsfpScroll:SetVerticalScroll(0)
+    gsfpSpinRandomBtn:SetShown(#roster > 0)
+    gsfpSpinRandomBtn:SetEnabled(nhsMayUseLeaderGameActions() and #roster > 0)
   end
 
   local function updateMainHouseSizeLine()
@@ -4436,6 +4638,22 @@ local function buildMainFrame()
     end
   end
 
+  local function nhsSyncRandomPickFramePhase(sess, pickHouse, pickSeeker, useLeaderUi)
+    if not randomPickFrame:IsShown() then
+      return
+    end
+    if not useLeaderUi or not sess then
+      randomPickFrame:Hide()
+      return
+    end
+    local ctx = randomPickFrame.nhsSpinContext
+    if ctx == "house" and not pickHouse then
+      randomPickFrame:Hide()
+    elseif ctx == "seeker" and not pickSeeker then
+      randomPickFrame:Hide()
+    end
+  end
+
   local function refreshGameRounds()
     local leader = nhsIsRoundLeader()
     local ingroup = IsInGroup()
@@ -4446,6 +4664,8 @@ local function buildMainFrame()
     local pickSeeker = sess and State.gamePhase == "pick_seeker"
     local inRound = sess and State.gamePhase == "round_active"
     local showOrphanEnd = sess and ingroup and not leader
+
+    nhsSyncRandomPickFramePhase(sess, pickHouse, pickSeeker, useLeaderUi)
 
     if ingroup and leader then
       State.remoteRoundActive = false
@@ -4900,6 +5120,206 @@ local function buildMainFrame()
     refreshGameRounds()
   end)
 
+  -- Single smooth ease-out over the whole spin (no piecewise segments — those caused a velocity
+  -- jump at the join: linear tail + quartic “last rev” read as a brief speed-up then slow-down).
+  local function nhsRandomWheelEaseOutCubic(u)
+    u = math.min(1, math.max(0, u))
+    return 1 - (1 - u) * (1 - u) * (1 - u)
+  end
+
+  local twoPi = 2 * math.pi
+  local wheelPointerRad = math.pi / 2
+
+  local function nhsRandomWheelAngleDiff(a, b)
+    local d = a - b
+    while d > math.pi do
+      d = d - twoPi
+    end
+    while d < -math.pi do
+      d = d + twoPi
+    end
+    return math.abs(d)
+  end
+
+  -- Same geometry as nhsRandomWheelApplyOmega: which slice’s centerline is closest to the top pointer?
+  -- Winner is derived from spinAng (not the other way around) so selection always matches what’s drawn.
+  local function nhsRandomWheelWinnerAtSpin(spinAng, n)
+    local bestI, bestD = 1, math.huge
+    for i = 1, n do
+      local beta = wheelPointerRad + (i - 1) * twoPi / n
+      local theta = beta - spinAng
+      local d = nhsRandomWheelAngleDiff(theta, wheelPointerRad)
+      if d < bestD - 1e-8 then
+        bestD = d
+        bestI = i
+      end
+    end
+    return bestI
+  end
+
+  local function nhsRandomWheelSegmentRgb(i, n)
+    local u = (i - 1) / math.max(n, 1)
+    local r = 0.3 + 0.55 * (0.5 + 0.5 * math.sin(u * 6.2831853 + 0.5))
+    local g = 0.34 + 0.52 * (0.5 + 0.5 * math.sin(u * 6.2831853 + 2.2))
+    local b = 0.42 + 0.4 * (0.5 + 0.5 * math.sin(u * 6.2831853 + 4.0))
+    return math.min(1, math.max(0.15, r)), math.min(1, math.max(0.15, g)), math.min(1, math.max(0.18, b))
+  end
+
+  -- Spoke + label angle: theta = beta - spinAng. (Using +spinAng here makes the final ω math disagree
+  -- with how Texture:SetRotation maps to on-screen direction on Retail, so the pointer lands on the wrong slice.)
+  local function nhsRandomWheelApplyOmega(spinAng, items, n)
+    for i = 1, NHS_RANDOM_WHEEL_MAX do
+      if i <= n then
+        randomWheelSpokes[i]:Show()
+        randomWheelLabels[i]:Show()
+        local beta = wheelPointerRad + (i - 1) * twoPi / n
+        local theta = beta - spinAng
+        if nhsRandomWheelRotationOk then
+          randomWheelSpokes[i]:SetRotation(theta, { x = 0, y = 0.5 })
+        end
+        local lx = NHS_RANDOM_WHEEL_LABEL_R * math.cos(theta)
+        local ly = NHS_RANDOM_WHEEL_LABEL_R * math.sin(theta)
+        randomWheelLabels[i]:ClearAllPoints()
+        randomWheelLabels[i]:SetPoint("CENTER", randomWheelHub, "CENTER", lx, ly)
+        local disp = items[i].display
+        if type(disp) ~= "string" then
+          disp = tostring(disp or "?")
+        end
+        if #disp > 16 then
+          disp = disp:sub(1, 15) .. "…"
+        end
+        randomWheelLabels[i]:SetText(disp)
+      else
+        randomWheelSpokes[i]:Hide()
+        randomWheelLabels[i]:Hide()
+      end
+    end
+  end
+
+  local function openRandomSpinPicker(phaseContext, subtitle, items, onPicked)
+    local n = #items
+    if n < 1 then
+      return
+    end
+    ensureSavedVars()
+    if NHSV.useSpinnerRandomSelection == false then
+      onPicked(n > 1 and math.random(1, n) or 1)
+      return
+    end
+    if not nhsRandomWheelRotationOk or n > NHS_RANDOM_WHEEL_MAX then
+      onPicked(n > 1 and math.random(1, n) or 1)
+      return
+    end
+
+    randomPickFrame.nhsSpinContext = phaseContext
+    randomPickFrame.nhsSpinPhase = "spin"
+    randomPickFrame.nhsSpinItems = items
+    randomPickFrame.nhsSpinN = n
+    local spinsFull = 5.05 + math.random() * 0.95
+    randomPickFrame.nhsSpinA1 = spinsFull * twoPi + math.random() * twoPi
+    randomPickFrame.nhsSpinA0 = 0
+    randomPickFrame.nhsSpinElapsed = 0
+    randomPickFrame.nhsSpinDur = 4.2 + math.random() * 1.0
+    randomPickFrame.nhsSpinOnPicked = onPicked
+    randomPickFrame.nhsSpinning = true
+    randomPickFrame.nhsSettleElapsed = 0
+
+    randomPickSubtitle:SetText(subtitle)
+    randomPickStatus:SetText("Spinning…")
+    randomPickCloseBtn:Disable()
+    randomPickFrameCloseX:Disable()
+
+    for i = 1, n do
+      local r, g, b = nhsRandomWheelSegmentRgb(i, n)
+      randomWheelSpokes[i]:SetVertexColor(r, g, b, 0.95)
+      randomWheelSpokes[i]:ClearAllPoints()
+      randomWheelSpokes[i]:SetPoint("LEFT", randomWheelHub, "CENTER", 0, 0)
+      randomWheelSpokes[i]:SetSize(NHS_RANDOM_WHEEL_SPOKE_LEN, 22)
+    end
+
+    nhsRandomWheelApplyOmega(0, items, n)
+    randomPickFrame:Show()
+
+    randomPickFrame:SetScript("OnUpdate", function(self, el)
+      if self.nhsSpinPhase == "settled" then
+        self.nhsSettleElapsed = (self.nhsSettleElapsed or 0) + el
+        if self.nhsSettleElapsed >= 0.55 then
+          self:SetScript("OnUpdate", nil)
+          self.nhsSpinPhase = nil
+          self.nhsSpinning = false
+          randomPickCloseBtn:Enable()
+          randomPickFrameCloseX:Enable()
+        end
+        return
+      end
+
+      if not self.nhsSpinning or self.nhsSpinPhase ~= "spin" then
+        return
+      end
+
+      self.nhsSpinElapsed = self.nhsSpinElapsed + el
+      local u = self.nhsSpinElapsed / self.nhsSpinDur
+      if u >= 1 then
+        self.nhsSpinPhase = "settled"
+        self.nhsSettleElapsed = 0
+        self.nhsSpinWin = nhsRandomWheelWinnerAtSpin(self.nhsSpinA1, self.nhsSpinN)
+        nhsRandomWheelApplyOmega(self.nhsSpinA1, self.nhsSpinItems, self.nhsSpinN)
+        local disp = self.nhsSpinItems[self.nhsSpinWin] and self.nhsSpinItems[self.nhsSpinWin].display or "?"
+        if type(disp) ~= "string" then
+          disp = tostring(disp)
+        end
+        randomPickStatus:SetText(
+          ("Selected: |cffffffff%s|r\n\nThis window stays open for the rest of this phase — close when you like, or spin again from the main panel."):format(
+            disp
+          )
+        )
+        local w = self.nhsSpinWin
+        local cb = self.nhsSpinOnPicked
+        self.nhsSpinOnPicked = nil
+        if cb then
+          cb(w)
+        end
+        return
+      end
+      local e = nhsRandomWheelEaseOutCubic(u)
+      local ang = self.nhsSpinA0 + (self.nhsSpinA1 - self.nhsSpinA0) * e
+      nhsRandomWheelApplyOmega(ang, self.nhsSpinItems, self.nhsSpinN)
+    end)
+  end
+
+  local function nhsOpenSeekerRandomSpinPicker(hideSeekerListFrame)
+    if not nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_seeker" then
+      return
+    end
+    local elig, err = nhsRandomSeekerEligible()
+    if not elig then
+      print("|cffff8800[NHS]|r " .. tostring(err))
+      return
+    end
+    if hideSeekerListFrame then
+      gsfp:Hide()
+    end
+    openRandomSpinPicker("seeker", "Random seeker (eligible this rotation)", elig, function(winIdx)
+      local m = elig[winIdx]
+      if not m then
+        return
+      end
+      State.gameCandidateKey = m.key
+      State.gameCandidateDisplay = m.display
+      print(
+        ("|cff88ccff[NHS]|r Seeker pick: |cffffffff%s|r — Confirm seeker to lock in (or random again)."):format(
+          m.display
+        )
+      )
+      nhsPersistGameSessionToSaved()
+      refreshGameRounds()
+    end)
+  end
+
+  gsfpSpinRandomBtn:SetScript("OnClick", function()
+    nhsOpenSeekerRandomSpinPicker(true)
+  end)
+
   randGameHouseBtn:SetScript("OnClick", function()
     if not nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_house" then
       return
@@ -4914,20 +5334,26 @@ local function buildMainFrame()
     if NHSV.selectHouseFromSavedList == false and #housesCache == 0 then
       refreshHouseList()
     end
-    local pick, err = nhsPickRandomGameplayHouse(housesCache)
-    if not pick then
+    local elig, err = nhsGameplayRandomHouseEligible(housesCache)
+    if not elig then
       print("|cffff8800[NHS]|r " .. tostring(err))
       return
     end
-    State.gameHouseCandidateKey = pick.rotKey
-    State.gameHouseCandidateDisplay = pick.display
-    State.gameLockedHouseLiveEntry = pick.liveEntry
-    State.gameLockedHouseLiveIndex = pick.liveIndex
-    print(
-      ("|cff88ccff[NHS]|r Gameplay house: |cffffffff%s|r — Confirm house when ready."):format(pick.display)
-    )
-    nhsPersistGameSessionToSaved()
-    refreshGameRounds()
+    openRandomSpinPicker("house", "Random house (eligible this rotation)", elig, function(winIdx)
+      local pick = elig[winIdx]
+      if not pick then
+        return
+      end
+      State.gameHouseCandidateKey = pick.rotKey
+      State.gameHouseCandidateDisplay = pick.display
+      State.gameLockedHouseLiveEntry = pick.liveEntry
+      State.gameLockedHouseLiveIndex = pick.liveIndex
+      print(
+        ("|cff88ccff[NHS]|r Gameplay house: |cffffffff%s|r — Confirm house when ready."):format(pick.display)
+      )
+      nhsPersistGameSessionToSaved()
+      refreshGameRounds()
+    end)
   end)
 
   viewGameHousePickBtn:SetScript("OnClick", function()
@@ -4989,23 +5415,7 @@ local function buildMainFrame()
   end)
 
   randSeekerBtn:SetScript("OnClick", function()
-    if not nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_seeker" then
-      return
-    end
-    local m, err = nhsPickRandomSeekerMember()
-    if not m then
-      print("|cffff8800[NHS]|r " .. tostring(err))
-      return
-    end
-    State.gameCandidateKey = m.key
-    State.gameCandidateDisplay = m.display
-    print(
-      ("|cff88ccff[NHS]|r Seeker pick: |cffffffff%s|r — Confirm seeker to lock in (or random again)."):format(
-        m.display
-      )
-    )
-    nhsPersistGameSessionToSaved()
-    refreshGameRounds()
+    nhsOpenSeekerRandomSpinPicker(false)
   end)
 
   selectSeekerBtn:SetScript("OnClick", function()
@@ -5272,6 +5682,17 @@ local function buildMainFrame()
   gsfp:SetFrameLevel(206)
   gsfp:SetToplevel(true)
 
+  randomPickFrame:ClearAllPoints()
+  if NHSV.randomPickFramePoint then
+    local rp = NHSV.randomPickFramePoint
+    randomPickFrame:SetPoint(rp[1], UIParent, rp[2], rp[3], rp[4])
+  else
+    randomPickFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 40)
+  end
+  randomPickFrame:SetFrameStrata("DIALOG")
+  randomPickFrame:SetFrameLevel(210)
+  randomPickFrame:SetToplevel(true)
+
   UI.optionsFrame = optf
   UI.houseListFrame = hf
   UI.pastSeekersFrame = psf
@@ -5279,6 +5700,7 @@ local function buildMainFrame()
   UI.gameplayPastHousesFrame = ghpf
   UI.gameplayPastRoundsFrame = pastRoundsFrame
   UI.gameplaySeekerPickFrame = gsfp
+  UI.gameplayRandomPickFrame = randomPickFrame
   UI.howToPlayFrame = htpf
   UI.savedSizesFrame = shf
   UI.viewHouseListBtn = viewHouseListBtn
@@ -5322,6 +5744,9 @@ local function nhsToggleMainFrame()
       end
       if UI.gameplayPastRoundsFrame and UI.gameplayPastRoundsFrame:IsShown() then
         UI.gameplayPastRoundsFrame:Hide()
+      end
+      if UI.gameplayRandomPickFrame and UI.gameplayRandomPickFrame:IsShown() then
+        UI.gameplayRandomPickFrame:Hide()
       end
       if UI.gameplaySeekerPickFrame and UI.gameplaySeekerPickFrame:IsShown() then
         UI.gameplaySeekerPickFrame:Hide()
