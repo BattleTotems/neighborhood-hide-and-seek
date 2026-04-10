@@ -5,3 +5,27 @@
 ## SavedVariables: NHSV
 
 Core.lua
+SavedVarsDefaults.lua
+Ui/ScrollUtil.lua
+Gameplay/SeekerMode.lua
+Gameplay/RandomPickAnimation.lua
+Gameplay/GameSession.lua
+Gameplay/SessionHud.lua
+GroupSync.lua
+Gameplay/MarkFound.lua
+Ui/PastSeekersFrame.lua
+Ui/SavedSizesFrame.lua
+Ui/GameplayPastHousesFrame.lua
+Ui/PastRoundsFrame.lua
+Ui/GameplayHousePickFrame.lua
+Ui/GameplaySeekerPickFrame.lua
+Ui/MainFrame.lua
+Ui/MainFrameToggle.lua
+SlashCommands.lua
+Ui/MinimapButton.lua
+Ui/Options.lua
+Ui/HowToPlay.lua
+House/Housing.lua
+House/HousingPinShare.lua
+House/HouseList.lua
+House/SavedHouses.lua
