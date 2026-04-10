@@ -1,7 +1,7 @@
 ## Interface: 120001, 120000, 120005, 110207
 ## Title: Neighborhood Hide & Seek
 ## Notes: Retail Midnight 12.0.1 primary (TOC 120001). Guild housing hide-and-seek: seeker mode (nameplates), visitable houses, random pick, waypoint/share pin, found list. Extra interface IDs allow load on nearby 12.x / 11.2.7 builds.
-## Version: 0.1.0
+## Version: 1.0.0
 ## SavedVariables: NHSV
 
 Core.lua
