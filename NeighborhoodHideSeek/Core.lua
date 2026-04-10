@@ -88,8 +88,12 @@ local function ensureSavedVars()
   if NHSV.selectHouseFromSavedList == nil then
     NHSV.selectHouseFromSavedList = true
   end
-  if NHSV.useSpinnerRandomSelection == nil then
-    NHSV.useSpinnerRandomSelection = true
+  if NHSV.useRandomPickAnimation == nil then
+    if NHSV.useSpinnerRandomSelection ~= nil then
+      NHSV.useRandomPickAnimation = NHSV.useSpinnerRandomSelection
+    else
+      NHSV.useRandomPickAnimation = true
+    end
   end
 end
 
@@ -1960,7 +1964,7 @@ local function nhsBuildGameplayHousePickPool(housesCache)
   return nhsGameplayCurrentHousePoolEntries(housesCache)
 end
 
--- Eligible pool for random house (same rules as pick); used by spin UI and nhsPickRandomGameplayHouse.
+-- Eligible pool for random house (same rules as pick); used by random pick UI and nhsPickRandomGameplayHouse.
 local function nhsGameplayRandomHouseEligible(housesCache)
   local pool = nhsBuildGameplayHousePickPool(housesCache)
   if #pool == 0 then
@@ -3339,14 +3343,14 @@ local function buildMainFrame()
   cbHouseSavedText:SetJustifyH("LEFT")
   cbHouseSavedText:SetText("Gameplay: choose house from saved list (off = current neighborhood list)")
 
-  local cbSpinnerRandom = CreateFrame("CheckButton", nil, optf, "UICheckButtonTemplate")
-  cbSpinnerRandom:SetSize(22, 22)
-  cbSpinnerRandom:SetPoint("TOPLEFT", 16, -136)
-  local cbSpinnerRandomText = optf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  cbSpinnerRandomText:SetPoint("LEFT", cbSpinnerRandom, "RIGHT", 4, 0)
-  cbSpinnerRandomText:SetWidth(292)
-  cbSpinnerRandomText:SetJustifyH("LEFT")
-  cbSpinnerRandomText:SetText("Use spinner random selection method (house & seeker)")
+  local cbRandPickAnim = CreateFrame("CheckButton", nil, optf, "UICheckButtonTemplate")
+  cbRandPickAnim:SetSize(22, 22)
+  cbRandPickAnim:SetPoint("TOPLEFT", 16, -136)
+  local cbRandPickAnimText = optf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  cbRandPickAnimText:SetPoint("LEFT", cbRandPickAnim, "RIGHT", 4, 0)
+  cbRandPickAnimText:SetWidth(292)
+  cbRandPickAnimText:SetJustifyH("LEFT")
+  cbRandPickAnimText:SetText("Animate random pick (cycle highlights; off = instant)")
 
   local optSeekerSep = optf:CreateTexture(nil, "ARTWORK", nil, 1)
   optSeekerSep:SetColorTexture(1, 1, 1, 0.12)
@@ -3384,7 +3388,7 @@ local function buildMainFrame()
     cbParty:SetChecked(NHSV.hideGroupFramesInSeeker ~= false)
     cbMini:SetChecked(NHSV.hideMinimapInSeeker == true)
     cbHouseSaved:SetChecked(NHSV.selectHouseFromSavedList ~= false)
-    cbSpinnerRandom:SetChecked(NHSV.useSpinnerRandomSelection ~= false)
+    cbRandPickAnim:SetChecked(NHSV.useRandomPickAnimation ~= false)
     syncSeekerModeOptionButton()
   end
 
@@ -3393,7 +3397,7 @@ local function buildMainFrame()
     NHSV.hideGroupFramesInSeeker = cbParty:GetChecked() and true or false
     NHSV.hideMinimapInSeeker = cbMini:GetChecked() and true or false
     NHSV.selectHouseFromSavedList = cbHouseSaved:GetChecked() and true or false
-    NHSV.useSpinnerRandomSelection = cbSpinnerRandom:GetChecked() and true or false
+    NHSV.useRandomPickAnimation = cbRandPickAnim:GetChecked() and true or false
     if State.seekerMode then
       if NHSV.hideGroupFramesInSeeker or NHSV.hideMinimapInSeeker then
         seekerUiPoll:Show()
@@ -3406,7 +3410,7 @@ local function buildMainFrame()
   cbParty:SetScript("OnClick", applySeekerUiOptionChange)
   cbMini:SetScript("OnClick", applySeekerUiOptionChange)
   cbHouseSaved:SetScript("OnClick", applySeekerUiOptionChange)
-  cbSpinnerRandom:SetScript("OnClick", applySeekerUiOptionChange)
+  cbRandPickAnim:SetScript("OnClick", applySeekerUiOptionChange)
 
   local optCloseBtn = CreateFrame("Button", nil, optf, "UIPanelCloseButton")
   optCloseBtn:SetPoint("TOPRIGHT", -6, -6)
@@ -3912,12 +3916,22 @@ local function buildMainFrame()
   end)
   pastRoundsFrame:Hide()
 
-  local NHS_RANDOM_WHEEL_MAX = 28
-  local NHS_RANDOM_WHEEL_SPOKE_LEN = 98
-  local NHS_RANDOM_WHEEL_LABEL_R = 66
+  local NHS_RANDOM_GRID_COLS = 4
+  local NHS_RANDOM_GRID_PAD = 5
+  local NHS_RANDOM_GRID_CELL_H = 28
+  local NHS_RANDOM_FRAME_W = 464
+  local NHS_RANDOM_FRAME_H = 486
+  local NHS_RANDOM_SCROLL_W = NHS_RANDOM_FRAME_W - 32
+  -- Seconds per advance during fast_laps / fast_chase (fixed; not scaled by list size).
+  local NHS_GRID_FAST_STEP_SEC = 0.05
+  -- Slow phase: first slow tick and ramp (each step multiplies delay until cap).
+  local NHS_GRID_SLOW_START_MULT = 1.62
+  local NHS_GRID_SLOW_STEP_GROW = 1.1
+  local NHS_GRID_SLOW_STEP_MIN_SEC = 0.056
+  local NHS_GRID_SLOW_STEP_CAP_SEC = 0.58
 
   local randomPickFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-  randomPickFrame:SetSize(360, 420)
+  randomPickFrame:SetSize(NHS_RANDOM_FRAME_W, NHS_RANDOM_FRAME_H)
   randomPickFrame:SetClampedToScreen(true)
   randomPickFrame:SetMovable(true)
   randomPickFrame:EnableMouse(true)
@@ -3942,73 +3956,64 @@ local function buildMainFrame()
   randomPickFrame:SetBackdropColor(0, 0, 0, 0.92)
   local randomPickTitle = randomPickFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   randomPickTitle:SetPoint("TOP", 0, -14)
-  randomPickTitle:SetText("Random pick")
+  randomPickTitle:SetText("Random selection")
   local randomPickSubtitle = randomPickFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   randomPickSubtitle:SetPoint("TOP", randomPickTitle, "BOTTOM", 0, -4)
-  randomPickSubtitle:SetWidth(320)
+  randomPickSubtitle:SetWidth(NHS_RANDOM_SCROLL_W - 8)
   randomPickSubtitle:SetJustifyH("CENTER")
   randomPickSubtitle:SetText("—")
 
-  local randomWheelArea = CreateFrame("Frame", nil, randomPickFrame)
-  randomWheelArea:SetSize(268, 268)
-  randomWheelArea:SetPoint("TOP", randomPickFrame, "TOP", 0, -56)
-
-  local randomWheelBg = randomWheelArea:CreateTexture(nil, "BACKGROUND")
-  randomWheelBg:SetTexture("Interface\\Buttons\\WHITE8X8")
-  randomWheelBg:SetVertexColor(0.06, 0.07, 0.1, 1)
-  randomWheelBg:SetSize(228, 228)
-  randomWheelBg:SetPoint("CENTER", randomWheelArea, "CENTER", 0, 0)
-
-  local randomWheelHub = CreateFrame("Frame", nil, randomWheelArea)
-  randomWheelHub:SetSize(2, 2)
-  randomWheelHub:SetPoint("CENTER", randomWheelArea, "CENTER", 0, 0)
-
-  local randomWheelPointer = randomPickFrame:CreateTexture(nil, "OVERLAY")
-  randomWheelPointer:SetTexture("Interface\\Buttons\\WHITE8X8")
-  randomWheelPointer:SetVertexColor(1, 0.22, 0.12, 1)
-  randomWheelPointer:SetSize(16, 36)
-  randomWheelPointer:SetPoint("TOP", randomWheelArea, "TOP", 0, 10)
-
-  local randomWheelSpokes = {}
-  local randomWheelLabels = {}
-  for wi = 1, NHS_RANDOM_WHEEL_MAX do
-    local sp = randomWheelHub:CreateTexture(nil, "ARTWORK")
-    sp:SetTexture("Interface\\Buttons\\WHITE8X8")
-    sp:SetSize(NHS_RANDOM_WHEEL_SPOKE_LEN, 22)
-    sp:SetPoint("LEFT", randomWheelHub, "CENTER", 0, 0)
-    sp:Hide()
-    randomWheelSpokes[wi] = sp
-    local fs = randomWheelHub:CreateFontString(nil, "OVERLAY")
-    fs:SetWidth(96)
-    fs:SetJustifyH("CENTER")
-    fs:SetFontObject("GameFontNormalSmall")
-    fs:Hide()
-    randomWheelLabels[wi] = fs
-  end
-
-  local nhsRandomWheelRotationOk = (randomWheelSpokes[1] and type(randomWheelSpokes[1].SetRotation) == "function")
-
   local randomPickStatus = randomPickFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  randomPickStatus:SetPoint("TOP", randomWheelArea, "BOTTOM", 0, -10)
-  randomPickStatus:SetWidth(320)
+  randomPickStatus:SetPoint("TOP", randomPickSubtitle, "BOTTOM", 0, -8)
+  randomPickStatus:SetWidth(NHS_RANDOM_SCROLL_W - 8)
   randomPickStatus:SetJustifyH("CENTER")
   randomPickStatus:SetText("")
 
-  local randomPickCloseBtn = CreateFrame("Button", nil, randomPickFrame, "UIPanelButtonTemplate")
-  randomPickCloseBtn:SetSize(160, 24)
-  randomPickCloseBtn:SetText("Close")
-  randomPickCloseBtn:SetPoint("BOTTOM", randomPickFrame, "BOTTOM", 0, 16)
-  randomPickCloseBtn:SetScript("OnClick", function()
-    if randomPickFrame.nhsSpinning then
-      return
+  local randomGridScroll = CreateFrame("ScrollFrame", nil, randomPickFrame)
+  randomGridScroll:SetPoint("TOP", randomPickStatus, "BOTTOM", 0, -8)
+  randomGridScroll:SetPoint("LEFT", randomPickFrame, "LEFT", 16, 0)
+  randomGridScroll:SetPoint("RIGHT", randomPickFrame, "RIGHT", -16, 0)
+  randomGridScroll:SetPoint("BOTTOM", randomPickFrame, "BOTTOM", 0, 16)
+  randomGridScroll:EnableMouse(true)
+  randomGridScroll:EnableMouseWheel(true)
+  randomGridScroll:SetScript("OnMouseWheel", function(self, delta)
+    local max = math.max(self:GetVerticalScrollRange(), 0)
+    local next = self:GetVerticalScroll() - (delta * 34)
+    if next < 0 then
+      next = 0
+    elseif next > max then
+      next = max
     end
-    randomPickFrame:Hide()
+    self:SetVerticalScroll(next)
   end)
+
+  local randomGridScrollChild = CreateFrame("Frame", nil, randomGridScroll)
+  randomGridScrollChild:SetSize(NHS_RANDOM_SCROLL_W, 1)
+  randomGridScroll:SetScrollChild(randomGridScrollChild)
+
+  local randomPickCells = {}
+
+  local function nhsRandomPickEnsureCells(need)
+    while #randomPickCells < need do
+      local cell = CreateFrame("Frame", nil, randomGridScrollChild)
+      cell:SetSize(100, NHS_RANDOM_GRID_CELL_H)
+      local bg = cell:CreateTexture(nil, "BACKGROUND")
+      bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+      bg:SetAllPoints()
+      local fs = cell:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+      fs:SetPoint("TOPLEFT", 6, -6)
+      fs:SetPoint("BOTTOMRIGHT", -6, 6)
+      fs:SetJustifyH("CENTER")
+      fs:SetJustifyV("MIDDLE")
+      cell:Hide()
+      randomPickCells[#randomPickCells + 1] = { frame = cell, bg = bg, fs = fs }
+    end
+  end
 
   local randomPickFrameCloseX = CreateFrame("Button", nil, randomPickFrame, "UIPanelCloseButton")
   randomPickFrameCloseX:SetPoint("TOPRIGHT", -6, -6)
   randomPickFrameCloseX:SetScript("OnClick", function()
-    if randomPickFrame.nhsSpinning then
+    if randomPickFrame.nhsPickAnimRunning then
       return
     end
     randomPickFrame:Hide()
@@ -4016,11 +4021,16 @@ local function buildMainFrame()
 
   randomPickFrame:SetScript("OnHide", function(self)
     self:SetScript("OnUpdate", nil)
-    self.nhsSpinning = false
-    self.nhsSpinPhase = nil
-    self.nhsSpinOnPicked = nil
-    self.nhsSpinContext = nil
-    randomPickCloseBtn:Enable()
+    self.nhsPickAnimRunning = false
+    self.nhsPickAnimPhase = nil
+    self.nhsPickAnimOnPicked = nil
+    self.nhsPickAnimContext = nil
+    self.nhsGridHighlight = 1
+    self.nhsGridAnimPhase = nil
+    self.nhsGridFastStepsLeft = nil
+    self.nhsGridSlowMovesLeft = nil
+    self.nhsGridSlowInterval = nil
+    self.nhsGridAccum = 0
     randomPickFrameCloseX:Enable()
   end)
 
@@ -4077,11 +4087,11 @@ local function buildMainFrame()
   gsfpScrollChild:SetSize(268, 1)
   gsfpScrollChild:EnableMouse(true)
   gsfpScroll:SetScrollChild(gsfpScrollChild)
-  local gsfpSpinRandomBtn = CreateFrame("Button", nil, gsfp, "UIPanelButtonTemplate")
-  gsfpSpinRandomBtn:SetSize(268, 24)
-  gsfpSpinRandomBtn:SetText("Spin random seeker")
-  gsfpSpinRandomBtn:SetPoint("BOTTOM", gsfp, "BOTTOM", 0, 12)
-  gsfpSpinRandomBtn:Hide()
+  local gsfpAnimRandomSeekerBtn = CreateFrame("Button", nil, gsfp, "UIPanelButtonTemplate")
+  gsfpAnimRandomSeekerBtn:SetSize(268, 24)
+  gsfpAnimRandomSeekerBtn:SetText("Random seeker")
+  gsfpAnimRandomSeekerBtn:SetPoint("BOTTOM", gsfp, "BOTTOM", 0, 12)
+  gsfpAnimRandomSeekerBtn:Hide()
   local gsfpCloseBtn = CreateFrame("Button", nil, gsfp, "UIPanelCloseButton")
   gsfpCloseBtn:SetPoint("TOPRIGHT", -6, -6)
   gsfpCloseBtn:SetScript("OnClick", function()
@@ -4297,8 +4307,8 @@ local function buildMainFrame()
     end
     gsfpScrollChild:SetHeight(math.max(y + 8, 1))
     gsfpScroll:SetVerticalScroll(0)
-    gsfpSpinRandomBtn:SetShown(#roster > 0)
-    gsfpSpinRandomBtn:SetEnabled(nhsMayUseLeaderGameActions() and #roster > 0)
+    gsfpAnimRandomSeekerBtn:SetShown(#roster > 0)
+    gsfpAnimRandomSeekerBtn:SetEnabled(nhsMayUseLeaderGameActions() and #roster > 0)
   end
 
   local function updateMainHouseSizeLine()
@@ -4646,7 +4656,7 @@ local function buildMainFrame()
       randomPickFrame:Hide()
       return
     end
-    local ctx = randomPickFrame.nhsSpinContext
+    local ctx = randomPickFrame.nhsPickAnimContext
     if ctx == "house" and not pickHouse then
       randomPickFrame:Hide()
     elseif ctx == "seeker" and not pickSeeker then
@@ -5120,174 +5130,264 @@ local function buildMainFrame()
     refreshGameRounds()
   end)
 
-  -- Single smooth ease-out over the whole spin (no piecewise segments — those caused a velocity
-  -- jump at the join: linear tail + quartic “last rev” read as a brief speed-up then slow-down).
-  local function nhsRandomWheelEaseOutCubic(u)
-    u = math.min(1, math.max(0, u))
-    return 1 - (1 - u) * (1 - u) * (1 - u)
-  end
-
-  local twoPi = 2 * math.pi
-  local wheelPointerRad = math.pi / 2
-
-  local function nhsRandomWheelAngleDiff(a, b)
-    local d = a - b
-    while d > math.pi do
-      d = d - twoPi
+  local function nhsRandomPickCellText(disp)
+    if type(disp) ~= "string" then
+      disp = tostring(disp or "?")
     end
-    while d < -math.pi do
-      d = d + twoPi
+    if #disp > 22 then
+      disp = disp:sub(1, 21) .. "…"
     end
-    return math.abs(d)
+    return disp
   end
 
-  -- Same geometry as nhsRandomWheelApplyOmega: which slice’s centerline is closest to the top pointer?
-  -- Winner is derived from spinAng (not the other way around) so selection always matches what’s drawn.
-  local function nhsRandomWheelWinnerAtSpin(spinAng, n)
-    local bestI, bestD = 1, math.huge
-    for i = 1, n do
-      local beta = wheelPointerRad + (i - 1) * twoPi / n
-      local theta = beta - spinAng
-      local d = nhsRandomWheelAngleDiff(theta, wheelPointerRad)
-      if d < bestD - 1e-8 then
-        bestD = d
-        bestI = i
-      end
-    end
-    return bestI
-  end
-
-  local function nhsRandomWheelSegmentRgb(i, n)
-    local u = (i - 1) / math.max(n, 1)
-    local r = 0.3 + 0.55 * (0.5 + 0.5 * math.sin(u * 6.2831853 + 0.5))
-    local g = 0.34 + 0.52 * (0.5 + 0.5 * math.sin(u * 6.2831853 + 2.2))
-    local b = 0.42 + 0.4 * (0.5 + 0.5 * math.sin(u * 6.2831853 + 4.0))
-    return math.min(1, math.max(0.15, r)), math.min(1, math.max(0.15, g)), math.min(1, math.max(0.18, b))
-  end
-
-  -- Spoke + label angle: theta = beta - spinAng. (Using +spinAng here makes the final ω math disagree
-  -- with how Texture:SetRotation maps to on-screen direction on Retail, so the pointer lands on the wrong slice.)
-  local function nhsRandomWheelApplyOmega(spinAng, items, n)
-    for i = 1, NHS_RANDOM_WHEEL_MAX do
-      if i <= n then
-        randomWheelSpokes[i]:Show()
-        randomWheelLabels[i]:Show()
-        local beta = wheelPointerRad + (i - 1) * twoPi / n
-        local theta = beta - spinAng
-        if nhsRandomWheelRotationOk then
-          randomWheelSpokes[i]:SetRotation(theta, { x = 0, y = 0.5 })
+  local function nhsRandomPickApplyGridHighlight(nActive, highlightIdx)
+    for j = 1, #randomPickCells do
+      local c = randomPickCells[j]
+      if j <= nActive then
+        c.frame:Show()
+        if j == highlightIdx then
+          c.bg:SetVertexColor(0.5, 0.38, 0.1, 1)
+        else
+          c.bg:SetVertexColor(0.14, 0.15, 0.19, 1)
         end
-        local lx = NHS_RANDOM_WHEEL_LABEL_R * math.cos(theta)
-        local ly = NHS_RANDOM_WHEEL_LABEL_R * math.sin(theta)
-        randomWheelLabels[i]:ClearAllPoints()
-        randomWheelLabels[i]:SetPoint("CENTER", randomWheelHub, "CENTER", lx, ly)
-        local disp = items[i].display
-        if type(disp) ~= "string" then
-          disp = tostring(disp or "?")
-        end
-        if #disp > 16 then
-          disp = disp:sub(1, 15) .. "…"
-        end
-        randomWheelLabels[i]:SetText(disp)
       else
-        randomWheelSpokes[i]:Hide()
-        randomWheelLabels[i]:Hide()
+        c.frame:Hide()
       end
     end
   end
 
-  local function openRandomSpinPicker(phaseContext, subtitle, items, onPicked)
+  local function nhsRandomPickScrollHighlightIntoView(idx, n, cols, cellH, pad)
+    local row = math.floor((idx - 1) / cols)
+    local rowTop = row * (cellH + pad)
+    local viewH = randomGridScroll:GetHeight()
+    local maxScroll = math.max(randomGridScroll:GetVerticalScrollRange(), 0)
+    local target = rowTop + cellH * 0.5 - viewH * 0.5
+    if target < 0 then
+      target = 0
+    elseif target > maxScroll then
+      target = maxScroll
+    end
+    randomGridScroll:SetVerticalScroll(target)
+  end
+
+  local function nhsRandomPickLayoutGrid(n, items)
+    nhsRandomPickEnsureCells(n)
+    local gw = randomGridScrollChild:GetWidth()
+    local cols = NHS_RANDOM_GRID_COLS
+    local pad = NHS_RANDOM_GRID_PAD
+    local cellH = NHS_RANDOM_GRID_CELL_H
+    local cellW = (gw - pad * (cols - 1)) / cols
+    local rows = math.ceil(n / cols)
+    for i = 1, n do
+      local c = randomPickCells[i]
+      local row = math.floor((i - 1) / cols)
+      local col = (i - 1) % cols
+      local x = col * (cellW + pad)
+      local y = -row * (cellH + pad)
+      c.frame:SetSize(cellW, cellH)
+      c.frame:ClearAllPoints()
+      c.frame:SetPoint("TOPLEFT", randomGridScrollChild, "TOPLEFT", x, y)
+      c.fs:SetText(nhsRandomPickCellText(items[i].display))
+    end
+    for j = n + 1, #randomPickCells do
+      randomPickCells[j].frame:Hide()
+    end
+    randomGridScrollChild:SetHeight(math.max(rows * (cellH + pad) + pad, 1))
+    randomGridScroll:SetVerticalScroll(0)
+    return cols, cellH, pad
+  end
+
+  local function openAnimatedRandomPick(phaseContext, subtitle, items, onPicked)
     local n = #items
     if n < 1 then
       return
     end
     ensureSavedVars()
-    if NHSV.useSpinnerRandomSelection == false then
-      onPicked(n > 1 and math.random(1, n) or 1)
-      return
-    end
-    if not nhsRandomWheelRotationOk or n > NHS_RANDOM_WHEEL_MAX then
+    if NHSV.useRandomPickAnimation == false then
       onPicked(n > 1 and math.random(1, n) or 1)
       return
     end
 
-    randomPickFrame.nhsSpinContext = phaseContext
-    randomPickFrame.nhsSpinPhase = "spin"
-    randomPickFrame.nhsSpinItems = items
-    randomPickFrame.nhsSpinN = n
-    local spinsFull = 5.05 + math.random() * 0.95
-    randomPickFrame.nhsSpinA1 = spinsFull * twoPi + math.random() * twoPi
-    randomPickFrame.nhsSpinA0 = 0
-    randomPickFrame.nhsSpinElapsed = 0
-    randomPickFrame.nhsSpinDur = 4.2 + math.random() * 1.0
-    randomPickFrame.nhsSpinOnPicked = onPicked
-    randomPickFrame.nhsSpinning = true
+    local winIdx, h0
+    if n == 1 then
+      winIdx, h0 = 1, 1
+    else
+      winIdx = math.random(1, n)
+      -- Always start at the first slot each open (avoids stale highlight / “continues where it stopped”).
+      h0 = 1
+    end
+
+    randomPickFrame.nhsPickAnimContext = phaseContext
+    randomPickFrame.nhsPickAnimPhase = "anim"
+    randomPickFrame.nhsPickAnimItems = items
+    randomPickFrame.nhsPickAnimN = n
+    randomPickFrame.nhsPickAnimWin = winIdx
+    randomPickFrame.nhsGridHighlight = h0
+    if n <= 1 then
+      randomPickFrame.nhsGridFastStepsLeft = 0
+      randomPickFrame.nhsGridAnimPhase = nil
+    else
+      -- Phase 1: fast full-list passes. Phase 2: fast until we land on slowStartIdx. Phase 3: exactly
+      -- slowTotal slow ramp steps, landing on win on the last step (wrap math matches user spec).
+      local fastListPasses = math.min(4, math.max(1, math.floor(6 - math.ceil(n / 10))))
+      if n <= 14 then
+        fastListPasses = fastListPasses + 2 + math.random(0, 4)
+      end
+      randomPickFrame.nhsGridFastStepsLeft = fastListPasses * n
+      local slowTotal = math.random(10, 18)
+      randomPickFrame.nhsGridSlowTotalSteps = slowTotal
+      randomPickFrame.nhsGridSlowMovesLeft = 0
+      -- 1-based index where slow ramp begins: win - slowTotal, wrapped into 1..n (e.g. win=3, n=6, 11 -> 4).
+      randomPickFrame.nhsGridSlowStartIdx = ((winIdx - 1 - slowTotal) % n + n) % n + 1
+      randomPickFrame.nhsGridAnimPhase = "fast_laps"
+    end
+    randomPickFrame.nhsGridFastBase = NHS_GRID_FAST_STEP_SEC
+    randomPickFrame.nhsGridSlowInterval = nil
+    randomPickFrame.nhsGridInterval = randomPickFrame.nhsGridFastBase
+    randomPickFrame.nhsGridAccum = 0
+    randomPickFrame:SetScript("OnUpdate", nil)
+    randomPickFrame.nhsPickAnimOnPicked = onPicked
+    randomPickFrame.nhsPickAnimRunning = true
     randomPickFrame.nhsSettleElapsed = 0
 
+    local cols, cellH, pad = nhsRandomPickLayoutGrid(n, items)
+    randomPickFrame.nhsGridCols = cols
+    randomPickFrame.nhsGridCellH = cellH
+    randomPickFrame.nhsGridPad = pad
+
+    nhsRandomPickApplyGridHighlight(n, h0)
+    nhsRandomPickScrollHighlightIntoView(h0, n, cols, cellH, pad)
+
     randomPickSubtitle:SetText(subtitle)
-    randomPickStatus:SetText("Spinning…")
-    randomPickCloseBtn:Disable()
     randomPickFrameCloseX:Disable()
 
-    for i = 1, n do
-      local r, g, b = nhsRandomWheelSegmentRgb(i, n)
-      randomWheelSpokes[i]:SetVertexColor(r, g, b, 0.95)
-      randomWheelSpokes[i]:ClearAllPoints()
-      randomWheelSpokes[i]:SetPoint("LEFT", randomWheelHub, "CENTER", 0, 0)
-      randomWheelSpokes[i]:SetSize(NHS_RANDOM_WHEEL_SPOKE_LEN, 22)
+    if n == 1 then
+      randomPickFrame.nhsPickAnimPhase = "settled"
+      randomPickFrame.nhsSettleElapsed = 0
+      local disp1 = items[1] and items[1].display or "?"
+      if type(disp1) ~= "string" then
+        disp1 = tostring(disp1)
+      end
+      randomPickStatus:SetText(("Selected: |cffffffff%s|r"):format(disp1))
+      local cb1 = randomPickFrame.nhsPickAnimOnPicked
+      randomPickFrame.nhsPickAnimOnPicked = nil
+      if cb1 then
+        cb1(1)
+      end
+    else
+      randomPickStatus:SetText("Choosing…")
     end
 
-    nhsRandomWheelApplyOmega(0, items, n)
     randomPickFrame:Show()
 
     randomPickFrame:SetScript("OnUpdate", function(self, el)
-      if self.nhsSpinPhase == "settled" then
+      if self.nhsPickAnimPhase == "settled" then
         self.nhsSettleElapsed = (self.nhsSettleElapsed or 0) + el
         if self.nhsSettleElapsed >= 0.55 then
           self:SetScript("OnUpdate", nil)
-          self.nhsSpinPhase = nil
-          self.nhsSpinning = false
-          randomPickCloseBtn:Enable()
+          self.nhsPickAnimPhase = nil
+          self.nhsPickAnimRunning = false
           randomPickFrameCloseX:Enable()
         end
         return
       end
 
-      if not self.nhsSpinning or self.nhsSpinPhase ~= "spin" then
+      if not self.nhsPickAnimRunning or self.nhsPickAnimPhase ~= "anim" then
         return
       end
 
-      self.nhsSpinElapsed = self.nhsSpinElapsed + el
-      local u = self.nhsSpinElapsed / self.nhsSpinDur
-      if u >= 1 then
-        self.nhsSpinPhase = "settled"
+      local nn = self.nhsPickAnimN
+      local cols2 = self.nhsGridCols
+      local ch = self.nhsGridCellH
+      local pd = self.nhsGridPad
+      local win = self.nhsPickAnimWin
+      local fastB = self.nhsGridFastBase or NHS_GRID_FAST_STEP_SEC
+      local animPhase = self.nhsGridAnimPhase or "fast_laps"
+
+      self.nhsGridAccum = (self.nhsGridAccum or 0) + el
+
+      local function finishRandomPickGrid()
+        self.nhsPickAnimPhase = "settled"
         self.nhsSettleElapsed = 0
-        self.nhsSpinWin = nhsRandomWheelWinnerAtSpin(self.nhsSpinA1, self.nhsSpinN)
-        nhsRandomWheelApplyOmega(self.nhsSpinA1, self.nhsSpinItems, self.nhsSpinN)
-        local disp = self.nhsSpinItems[self.nhsSpinWin] and self.nhsSpinItems[self.nhsSpinWin].display or "?"
+        local disp = self.nhsPickAnimItems[self.nhsPickAnimWin] and self.nhsPickAnimItems[self.nhsPickAnimWin].display or "?"
         if type(disp) ~= "string" then
           disp = tostring(disp)
         end
-        randomPickStatus:SetText(
-          ("Selected: |cffffffff%s|r\n\nThis window stays open for the rest of this phase — close when you like, or spin again from the main panel."):format(
-            disp
-          )
-        )
-        local w = self.nhsSpinWin
-        local cb = self.nhsSpinOnPicked
-        self.nhsSpinOnPicked = nil
+        randomPickStatus:SetText(("Selected: |cffffffff%s|r"):format(disp))
+        local w = self.nhsPickAnimWin
+        local cb = self.nhsPickAnimOnPicked
+        self.nhsPickAnimOnPicked = nil
         if cb then
           cb(w)
         end
+      end
+
+      -- At most one cell advance per OnUpdate. A inner while + large |el| skipped most indices (looked
+      -- like “never went around once”); leftover time stays in accum for the next tick.
+      if self.nhsGridAccum < self.nhsGridInterval then
         return
       end
-      local e = nhsRandomWheelEaseOutCubic(u)
-      local ang = self.nhsSpinA0 + (self.nhsSpinA1 - self.nhsSpinA0) * e
-      nhsRandomWheelApplyOmega(ang, self.nhsSpinItems, self.nhsSpinN)
+      self.nhsGridAccum = self.nhsGridAccum - self.nhsGridInterval
+
+      local cur = self.nhsGridHighlight
+      if type(cur) ~= "number" or cur < 1 or cur > nn then
+        cur = 1
+        self.nhsGridHighlight = 1
+      end
+      local fastLeftBefore = self.nhsGridFastStepsLeft or 0
+
+      if animPhase == "fast_laps" then
+        self.nhsGridHighlight = (cur % nn) + 1
+        if fastLeftBefore > 0 then
+          self.nhsGridFastStepsLeft = fastLeftBefore - 1
+        end
+        if (self.nhsGridFastStepsLeft or 0) == 0 then
+          self.nhsGridAnimPhase = "fast_chase"
+          if self.nhsGridHighlight == self.nhsGridSlowStartIdx then
+            self.nhsGridAnimPhase = "slow_seq"
+            self.nhsGridSlowMovesLeft = self.nhsGridSlowTotalSteps
+            self.nhsGridSlowInterval = nil
+          end
+        end
+      elseif animPhase == "fast_chase" then
+        self.nhsGridHighlight = (cur % nn) + 1
+        if self.nhsGridHighlight == self.nhsGridSlowStartIdx then
+          self.nhsGridAnimPhase = "slow_seq"
+          self.nhsGridSlowMovesLeft = self.nhsGridSlowTotalSteps
+          self.nhsGridSlowInterval = nil
+        end
+      else
+        -- slow_seq: each tick is one slow ramp step; exactly slowTotal advances from slowStart lands on win.
+        self.nhsGridHighlight = (cur % nn) + 1
+        self.nhsGridSlowMovesLeft = (self.nhsGridSlowMovesLeft or 0) - 1
+      end
+
+      animPhase = self.nhsGridAnimPhase or animPhase
+
+      nhsRandomPickApplyGridHighlight(nn, self.nhsGridHighlight)
+      nhsRandomPickScrollHighlightIntoView(self.nhsGridHighlight, nn, cols2, ch, pd)
+
+      if animPhase == "slow_seq" and (self.nhsGridSlowMovesLeft or 0) == 0 and self.nhsGridHighlight == win then
+        finishRandomPickGrid()
+        return
+      end
+
+      if animPhase == "slow_seq" then
+        local slow0 = math.max(NHS_GRID_SLOW_STEP_MIN_SEC, fastB * NHS_GRID_SLOW_START_MULT)
+        local s = (self.nhsGridSlowInterval or slow0) * NHS_GRID_SLOW_STEP_GROW
+        self.nhsGridSlowInterval = math.min(
+          NHS_GRID_SLOW_STEP_CAP_SEC,
+          math.max(NHS_GRID_SLOW_STEP_MIN_SEC, s)
+        )
+        self.nhsGridInterval = self.nhsGridSlowInterval
+      else
+        self.nhsGridSlowInterval = nil
+        self.nhsGridInterval = fastB
+      end
     end)
   end
 
-  local function nhsOpenSeekerRandomSpinPicker(hideSeekerListFrame)
+  local function nhsOpenSeekerAnimatedRandomPick(hideSeekerListFrame)
     if not nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_seeker" then
       return
     end
@@ -5299,7 +5399,7 @@ local function buildMainFrame()
     if hideSeekerListFrame then
       gsfp:Hide()
     end
-    openRandomSpinPicker("seeker", "Random seeker (eligible this rotation)", elig, function(winIdx)
+    openAnimatedRandomPick("seeker", "Random seeker (eligible this rotation)", elig, function(winIdx)
       local m = elig[winIdx]
       if not m then
         return
@@ -5316,8 +5416,8 @@ local function buildMainFrame()
     end)
   end
 
-  gsfpSpinRandomBtn:SetScript("OnClick", function()
-    nhsOpenSeekerRandomSpinPicker(true)
+  gsfpAnimRandomSeekerBtn:SetScript("OnClick", function()
+    nhsOpenSeekerAnimatedRandomPick(true)
   end)
 
   randGameHouseBtn:SetScript("OnClick", function()
@@ -5339,7 +5439,7 @@ local function buildMainFrame()
       print("|cffff8800[NHS]|r " .. tostring(err))
       return
     end
-    openRandomSpinPicker("house", "Random house (eligible this rotation)", elig, function(winIdx)
+    openAnimatedRandomPick("house", "Random house (eligible this rotation)", elig, function(winIdx)
       local pick = elig[winIdx]
       if not pick then
         return
@@ -5415,7 +5515,7 @@ local function buildMainFrame()
   end)
 
   randSeekerBtn:SetScript("OnClick", function()
-    nhsOpenSeekerRandomSpinPicker(false)
+    nhsOpenSeekerAnimatedRandomPick(false)
   end)
 
   selectSeekerBtn:SetScript("OnClick", function()
