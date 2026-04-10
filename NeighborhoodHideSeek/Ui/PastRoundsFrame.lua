@@ -1,5 +1,5 @@
 --[[
-  "Past rounds" multi-block scroll popup. Load after Ui/ScrollUtil.lua; before Ui/MainFrame.lua.
+  "Previous rounds" multi-block scroll popup. Load after Ui/ScrollUtil.lua; before Ui/MainFrame.lua.
 ]]
 
 local NHS = NeighborhoodHideSeek
@@ -33,7 +33,7 @@ function NHS.CreatePastRoundsFrame()
   pastRoundsFrame:SetBackdropColor(0, 0, 0, 0.9)
   local pastRoundsTitle = pastRoundsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   pastRoundsTitle:SetPoint("TOP", 0, -14)
-  pastRoundsTitle:SetText("Past rounds")
+  pastRoundsTitle:SetText("Previous Rounds")
   local pastRoundsScroll = CreateFrame("ScrollFrame", nil, pastRoundsFrame)
   pastRoundsScroll:SetPoint("TOPLEFT", 16, -42)
   pastRoundsScroll:SetSize(288, 310)

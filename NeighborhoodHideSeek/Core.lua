@@ -126,6 +126,10 @@ loader:SetScript("OnEvent", function(_, event, name)
       UI.RefreshAll()
     elseif UI.RefreshGameRounds then
       UI.RefreshGameRounds()
+    elseif NeighborhoodHideSeek.RefreshGameSessionUi then
+      NeighborhoodHideSeek.RefreshGameSessionUi()
+    elseif NeighborhoodHideSeek.SessionHudUpdate then
+      NeighborhoodHideSeek.SessionHudUpdate()
     end
   end
 end)

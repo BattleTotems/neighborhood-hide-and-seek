@@ -35,7 +35,7 @@ function NHS.CreateSavedSizesFrame(callbacks)
   shf:SetBackdropColor(0, 0, 0, 0.88)
   local shfTitle = shf:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   shfTitle:SetPoint("TOP", 0, -14)
-  shfTitle:SetText("Saved house sizes")
+  shfTitle:SetText("Saved House Sizes")
   local shfHelp = shf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   shfHelp:SetPoint("TOPLEFT", 16, -40)
   shfHelp:SetWidth(308)
@@ -117,7 +117,7 @@ function NHS.CreateSavedSizesFrame(callbacks)
         savedHouseRowBtns[i] = btn
       end
       btn._rowKey = row.key
-      btn:SetText(("%s — %s (remove)"):format(row.label, NHS.ROUND_PRESETS[row.idx].label))
+      btn:SetText(("%s — %s (Remove)"):format(row.label, NHS.ROUND_PRESETS[row.idx].label))
       btn:ClearAllPoints()
       btn:SetPoint("TOPLEFT", 8, -y)
       btn:Show()

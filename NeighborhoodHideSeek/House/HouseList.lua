@@ -40,7 +40,7 @@ function NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
 
   local listTitle = hf:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   listTitle:SetPoint("TOP", 0, -14)
-  listTitle:SetText("House list")
+  listTitle:SetText("House List")
 
   local listStatus = hf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   listStatus:SetPoint("TOPLEFT", 16, -40)
@@ -49,7 +49,7 @@ function NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
 
   local refreshBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
   refreshBtn:SetSize(288, 24)
-  refreshBtn:SetText("Refresh houses")
+  refreshBtn:SetText("Refresh Houses")
   refreshBtn:SetPoint("TOPLEFT", 16, -62)
 
   local pinBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
@@ -111,7 +111,7 @@ function NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
 
   local houseSizeClearBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
   houseSizeClearBtn:SetSize(288, 22)
-  houseSizeClearBtn:SetText("Clear saved size (selected house)")
+  houseSizeClearBtn:SetText("Clear Saved Size (Selected House)")
   houseSizeClearBtn:SetPoint("TOPLEFT", houseSizePresetBtns[3], "BOTTOMLEFT", 0, -6)
 
   local savedListBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")

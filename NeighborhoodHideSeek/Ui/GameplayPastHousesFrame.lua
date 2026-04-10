@@ -1,5 +1,5 @@
 --[[
-  "Houses this session" popup. Load after Ui/ScrollUtil.lua; before Ui/MainFrame.lua.
+  "Previous houses" popup. Load after Ui/ScrollUtil.lua; before Ui/MainFrame.lua.
 ]]
 
 local NHS = NeighborhoodHideSeek
@@ -33,7 +33,7 @@ function NHS.CreateGameplayPastHousesFrame()
   ghpf:SetBackdropColor(0, 0, 0, 0.9)
   local ghpfTitle = ghpf:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   ghpfTitle:SetPoint("TOP", 0, -14)
-  ghpfTitle:SetText("Houses this session")
+  ghpfTitle:SetText("Previous Houses")
   local ghpastScroll = CreateFrame("ScrollFrame", nil, ghpf)
   ghpastScroll:SetPoint("TOPLEFT", 16, -42)
   ghpastScroll:SetSize(268, 200)

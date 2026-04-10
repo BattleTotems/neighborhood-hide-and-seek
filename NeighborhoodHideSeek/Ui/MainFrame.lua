@@ -67,17 +67,17 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local randGameHouseBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   randGameHouseBtn:SetSize(150, 22)
-  randGameHouseBtn:SetText("Random house")
+  randGameHouseBtn:SetText("Random House")
   randGameHouseBtn:SetPoint("TOPLEFT", candidateGameHouseLbl, "BOTTOMLEFT", 0, -8)
 
   local viewGameHousePickBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   viewGameHousePickBtn:SetSize(150, 22)
-  viewGameHousePickBtn:SetText("View house list")
+  viewGameHousePickBtn:SetText("View House List")
   viewGameHousePickBtn:SetPoint("LEFT", randGameHouseBtn, "RIGHT", 8, 0)
 
   local confirmGameHouseBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   confirmGameHouseBtn:SetSize(308, 22)
-  confirmGameHouseBtn:SetText("Confirm house")
+  confirmGameHouseBtn:SetText("Confirm House")
   confirmGameHouseBtn:SetPoint("TOPLEFT", randGameHouseBtn, "BOTTOMLEFT", 0, -8)
 
   local seekerSelectHdr = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -94,17 +94,17 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local randSeekerBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   randSeekerBtn:SetSize(150, 22)
-  randSeekerBtn:SetText("Random seeker")
+  randSeekerBtn:SetText("Random Seeker")
   randSeekerBtn:SetPoint("TOPLEFT", candidateSeekerLbl, "BOTTOMLEFT", 0, -8)
 
   local selectSeekerBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   selectSeekerBtn:SetSize(150, 22)
-  selectSeekerBtn:SetText("Select seeker")
+  selectSeekerBtn:SetText("Select Seeker")
   selectSeekerBtn:SetPoint("LEFT", randSeekerBtn, "RIGHT", 8, 0)
 
   local startRoundBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   startRoundBtn:SetSize(308, 22)
-  startRoundBtn:SetText("Confirm seeker")
+  startRoundBtn:SetText("Confirm Seeker")
   startRoundBtn:SetPoint("TOPLEFT", randSeekerBtn, "BOTTOMLEFT", 0, -8)
 
   local hideRowLbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -151,7 +151,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local endRoundBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   endRoundBtn:SetSize(308, 24)
-  endRoundBtn:SetText("End round")
+  endRoundBtn:SetText("End Round")
   endRoundBtn:SetPoint("TOPLEFT", ctrlSectionSpacer, "BOTTOMLEFT", 0, 0)
 
   local divControlGameplay = f:CreateTexture(nil, "ARTWORK", nil, 1)
@@ -161,7 +161,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local orphanSessionBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   orphanSessionBtn:SetSize(308, 24)
-  orphanSessionBtn:SetText("End game session")
+  orphanSessionBtn:SetText("End Game Session")
   orphanSessionBtn:Hide()
 
   local roundPhaseLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -198,17 +198,17 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local viewPastGameHousesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   viewPastGameHousesBtn:SetSize(150, 22)
-  viewPastGameHousesBtn:SetText("Past houses")
+  viewPastGameHousesBtn:SetText("Previous Houses")
   viewPastGameHousesBtn:SetPoint("TOPLEFT", foundList, "BOTTOMLEFT", 0, -8)
 
   local viewPastSeekersBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   viewPastSeekersBtn:SetSize(150, 22)
-  viewPastSeekersBtn:SetText("Past seekers")
+  viewPastSeekersBtn:SetText("Previous Seekers")
   viewPastSeekersBtn:SetPoint("LEFT", viewPastGameHousesBtn, "RIGHT", 8, 0)
 
   local pastRoundsBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   pastRoundsBtn:SetSize(308, 22)
-  pastRoundsBtn:SetText("Past Rounds")
+  pastRoundsBtn:SetText("Previous Rounds")
   pastRoundsBtn:Hide()
 
   viewPastGameHousesBtn:Hide()
@@ -228,7 +228,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   -- House list / pin / saved size: separate House list window. Bottom row: How to play, View house list, Options.
   local howToPlayBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   howToPlayBtn:SetSize(308, 26)
-  howToPlayBtn:SetText("How to play")
+  howToPlayBtn:SetText("How To Play")
   howToPlayBtn:SetPoint("TOPLEFT", divGameplayHouse, "BOTTOMLEFT", 8, -8)
 
   local viewHouseListBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -368,7 +368,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       b:SetEnabled(canKey)
     end
     houseSizeClearBtn:SetEnabled(canKey and NeighborhoodHideSeek.SavedHouses.GetSavedPresetIndexForEntry(State.selectedEntry) ~= nil)
-    savedListBtn:SetText(("Saved sizes… (%d)"):format(NeighborhoodHideSeek.SavedHouses.CountSavedHouseSizes()))
+    savedListBtn:SetText(("Saved Sizes… (%d)"):format(NeighborhoodHideSeek.SavedHouses.CountSavedHouseSizes()))
   end
 
   savedSizesCallbacks.afterRowRemove = function()
@@ -686,6 +686,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
         refreshFoundList()
         syncSeekerUiOptionsFromSaved()
         syncMainFrameHeight()
+        if B.nhsSessionHudUpdate then
+          B.nhsSessionHudUpdate()
+        end
         return
       end
       if ingroup and State.remoteRoundActive then
@@ -720,6 +723,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
         refreshFoundList()
         syncSeekerUiOptionsFromSaved()
         syncMainFrameHeight()
+        if B.nhsSessionHudUpdate then
+          B.nhsSessionHudUpdate()
+        end
         return
       end
       orphanSessionBtn:Hide()
@@ -738,6 +744,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       refreshFoundList()
       syncSeekerUiOptionsFromSaved()
       syncMainFrameHeight()
+      if B.nhsSessionHudUpdate then
+        B.nhsSessionHudUpdate()
+      end
       return
     end
 
@@ -747,7 +756,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     sessionToggleBtn:Show()
     orphanSessionBtn:Hide()
 
-    sessionToggleBtn:SetText(sess and "End game session" or "Start game session")
+    sessionToggleBtn:SetText(sess and "End Game Session" or "Start Game Session")
     sessionToggleBtn:SetEnabled(mayAct)
 
     if State.gameHouseCandidateDisplay then
@@ -1030,8 +1039,10 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   function UI.RefreshFound()
     refreshFoundList()
+    if B.nhsSessionHudUpdate then
+      B.nhsSessionHudUpdate()
+    end
     syncMainFrameHeight()
-    B.nhsSessionHudUpdate()
   end
 
   function UI.RefreshAll()
@@ -1048,6 +1059,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     updateMainHouseSizeLine()
     refreshFoundList()
     refreshGameRounds()
+    if B.nhsSessionHudUpdate then
+      B.nhsSessionHudUpdate()
+    end
   end
 
   viewPastSeekersBtn:SetScript("OnClick", function()
@@ -1304,6 +1318,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
         UI.RefreshAll()
       end
       B.nhsSeekerAutoModeSyncToPhase()
+      B.nhsPersistGameSessionToSaved()
     else
       print("|cffff8800[NHS]|r " .. tostring(err))
     end

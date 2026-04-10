@@ -37,7 +37,7 @@ function NHS.CreateGameplayHousePickFrame(opts)
   ghfp:SetBackdropColor(0, 0, 0, 0.9)
   local ghfpTitle = ghfp:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   ghfpTitle:SetPoint("TOP", 0, -14)
-  ghfpTitle:SetText("Pick a house")
+  ghfpTitle:SetText("Pick A House")
   local ghfpStatus = ghfp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   ghfpStatus:SetPoint("TOPLEFT", 16, -40)
   ghfpStatus:SetWidth(268)
@@ -65,7 +65,7 @@ function NHS.CreateGameplayHousePickFrame(opts)
     NHS.EnsureSavedVars()
     local pool = NHS.SavedHouses.BuildGameplayHousePickPool(getHousesCache())
     ghfpTitle:SetText(
-      NHSV.selectHouseFromSavedList ~= false and "Pick a house (saved list)" or "Pick a house (current list)"
+      NHSV.selectHouseFromSavedList ~= false and "Pick A House (Saved List)" or "Pick A House (Current List)"
     )
     ghfpStatus:SetText(("Tap a row to choose (%d available)."):format(#pool))
     for i = 1, #gameplayPickRowBtns do

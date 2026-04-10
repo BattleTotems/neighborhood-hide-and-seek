@@ -179,6 +179,17 @@ local function nhsSessionHudUpdate()
   hud:SetHeight(math.max(130, math.min(360, totalH)))
 end
 
+-- Main window is lazy-built (BuildMainFrame on first toggle); until then UI.RefreshFound is nil.
+-- Always refresh the draggable session HUD when found/hidden/session state changes.
+local function nhsRefreshGameSessionUi()
+  local ui = B.getUI()
+  if ui.RefreshFound then
+    ui.RefreshFound()
+  else
+    nhsSessionHudUpdate()
+  end
+end
+
 local function nhsInitSessionHud()
   local UI = getUI()
   if UI.sessionHud then
@@ -260,6 +271,7 @@ end
 NHS.SessionHudCommaList = nhsSessionHudCommaList
 NHS.SessionHudIsActive = nhsSessionHudIsActive
 NHS.SessionHudUpdate = nhsSessionHudUpdate
+NHS.RefreshGameSessionUi = nhsRefreshGameSessionUi
 NHS.InitSessionHud = nhsInitSessionHud
 
 local bmf = NHS.BuildMainFrameBridge
@@ -275,4 +287,5 @@ end
 local gsb = NHS.GroupSyncBridge
 if gsb then
   gsb.nhsSessionHudUpdate = nhsSessionHudUpdate
+  gsb.nhsRefreshGameSessionUi = nhsRefreshGameSessionUi
 end

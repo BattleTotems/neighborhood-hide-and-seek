@@ -1,5 +1,5 @@
 --[[
-  "Seekers this session" popup. Load after Ui/ScrollUtil.lua; before Ui/MainFrame.lua.
+  "Previous seekers" popup. Load after Ui/ScrollUtil.lua; before Ui/MainFrame.lua.
 ]]
 
 local NHS = NeighborhoodHideSeek
@@ -34,7 +34,7 @@ function NHS.CreatePastSeekersFrame()
 
   local psfTitle = psf:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   psfTitle:SetPoint("TOP", 0, -14)
-  psfTitle:SetText("Seekers this session")
+  psfTitle:SetText("Previous Seekers")
 
   local psScroll = CreateFrame("ScrollFrame", nil, psf)
   psScroll:SetPoint("TOPLEFT", 16, -42)

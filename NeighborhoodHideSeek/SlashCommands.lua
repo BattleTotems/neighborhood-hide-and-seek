@@ -17,6 +17,14 @@ local function nhsSlashHandler(msg, editBox)
   local trimmed = (msg or ""):match("^%s*(.-)%s*$") or ""
   local cmd = trimmed:match("^(%S+)") or ""
   cmd = cmd:lower()
+  if cmd == "debugfound" then
+    NHS.debugFoundSync = not NHS.debugFoundSync
+    print(("[NHS] debugFoundSync = %s (prints roster/keys when Found sync or mark-found is blocked)"):format(tostring(NHS.debugFoundSync)))
+    if NHS.DebugDumpFoundSyncState then
+      NHS.DebugDumpFoundSyncState("/nhs debugfound snapshot")
+    end
+    return
+  end
   if cmd == "visitinfo" or cmd == "visitdebug" or cmd == "whyvisit" then
     pcall(function()
       NHS.HousingApi.PrintVisitDiagnostics(State.selectedEntry, State.selectedIndex)

@@ -192,10 +192,22 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
     end
   end
   if not C.nhsChatSenderIsDesignatedSeeker(senderName) then
+    if NHS.debugFoundSync and NHS.DebugDumpFoundSyncState then
+      NHS.DebugDumpFoundSyncState(
+        "Incoming [NHS] Found ignored: sender is not designated seeker",
+        ("chatSender=%q"):format(tostring(senderName))
+      )
+    end
     C.nhsPersistGameSessionToSaved()
     return true
   end
   if C.State.roundPhase ~= "searching" then
+    if NHS.debugFoundSync and NHS.DebugDumpFoundSyncState then
+      NHS.DebugDumpFoundSyncState(
+        "Incoming [NHS] Found ignored: roundPhase is not searching",
+        ("roundPhase=%q"):format(tostring(C.State.roundPhase))
+      )
+    end
     C.nhsPersistGameSessionToSaved()
     return true
   end
@@ -213,10 +225,14 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
   end
   C.State.foundSet[foundKey] = true
   C.State.foundOrder[#C.State.foundOrder + 1] = foundKey
-  if C.UI.RefreshAll then
-    C.UI.RefreshAll()
+  if NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
   elseif C.UI.RefreshFound then
     C.UI.RefreshFound()
+  elseif C.UI.RefreshAll then
+    C.UI.RefreshAll()
+  elseif C.nhsSessionHudUpdate then
+    C.nhsSessionHudUpdate()
   end
   C.nhsPersistGameSessionToSaved()
   return true
@@ -227,6 +243,9 @@ local function nhsBroadcastSeekerFound(foundKey)
     return
   end
   if not C.nhsLocalPlayerIsDesignatedSeeker or not C.nhsLocalPlayerIsDesignatedSeeker() then
+    if NHS.debugFoundSync and NHS.DebugDumpFoundSyncState then
+      NHS.DebugDumpFoundSyncState("BroadcastSeekerFound skipped: LocalPlayerIsDesignatedSeeker is false")
+    end
     return
   end
   local msg = NHS_MSG_FOUND_PREFIX .. foundKey

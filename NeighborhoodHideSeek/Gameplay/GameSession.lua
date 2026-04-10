@@ -257,6 +257,7 @@ local function nhsPersistGameSessionToSaved()
       sessionActive = true,
       clientMode = "leader",
       phase = State.gamePhase,
+      roundPhase = State.roundPhase,
       houseCandidateKey = State.gameHouseCandidateKey,
       houseCandidateDisplay = State.gameHouseCandidateDisplay,
       houseLockedKey = State.gameLockedHouseKey,
@@ -391,7 +392,12 @@ local function nhsHydrateGameSessionFromSaved()
     State.gameRotationUsed[k] = true
   end
   if State.gamePhase == "round_active" then
-    State.roundPhase = "pending"
+    local rp = s.roundPhase
+    if rp == "pending" or rp == "hiding" or rp == "searching" then
+      State.roundPhase = rp
+    else
+      State.roundPhase = "pending"
+    end
   else
     State.roundPhase = "none"
   end
@@ -663,6 +669,62 @@ local function nhsAppendPastRoundSnapshotIfActiveRound()
     found = nhsPastRoundFoundSnapshotString(),
   }
 end
+
+-- Toggle with /nhs debugfound or /run NeighborhoodHideSeek.debugFoundSync=true
+local function nhsDebugFoundSyncDump(reason, extra)
+  local me = nhsLocalPlayerSortKey()
+  local dsk = nhsGetDesignatedSeekerKey()
+  local ca = me and nhsCanonicalGroupSortKey(me) or nil
+  local cb = dsk and nhsCanonicalGroupSortKey(dsk) or nil
+  local ideq = (me and dsk) and nhsRosterIdentityEqual(me, dsk) or false
+  print("|cffffcc00[NHS] Found-sync debug|r " .. tostring(reason or "?"))
+  if extra and extra ~= "" then
+    print("|cffffcc00[NHS]|r  extra: " .. tostring(extra))
+  end
+  print("|cffffcc00[NHS]|r  isLeader=" .. tostring(nhsIsRoundLeader()) .. " inGroup=" .. tostring(IsInGroup()))
+  print("|cffffcc00[NHS]|r  localPlayerKey=" .. tostring(me))
+  print("|cffffcc00[NHS]|r  designatedSeekerKey(GetDesignatedSeekerKey)=" .. tostring(dsk))
+  print("|cffffcc00[NHS]|r  canonical(local)=" .. tostring(ca) .. " | canonical(designated)=" .. tostring(cb))
+  print("|cffffcc00[NHS]|r  RosterIdentityEqual(local, designated)=" .. tostring(ideq))
+  print(
+    "|cffffcc00[NHS]|r  remoteSession="
+      .. tostring(State.remoteSessionActive)
+      .. " remoteRound="
+      .. tostring(State.remoteRoundActive)
+      .. " roundPhase="
+      .. tostring(State.roundPhase)
+  )
+  print("|cffffcc00[NHS]|r  State.remoteSeekerKey(raw)=" .. tostring(State.remoteSeekerKey))
+  print(
+    "|cffffcc00[NHS]|r  gameSession="
+      .. tostring(State.gameSessionActive)
+      .. " gamePhase="
+      .. tostring(State.gamePhase)
+      .. " lockedSeeker="
+      .. tostring(State.gameLockedSeekerKey)
+  )
+  print("|cffffcc00[NHS]|r  Group roster (list we match keys against):")
+  local roster = nhsGetGroupRoster()
+  if #roster == 0 then
+    print("|cffffcc00[NHS]|r    (empty)")
+  else
+    for i, m in ipairs(roster) do
+      print(
+        ("|cffffcc00[NHS]|r    [%d] m.key=%q  display=%q"):format(i, tostring(m.key), tostring(m.display))
+      )
+    end
+  end
+  local fo = {}
+  for i = 1, #State.foundOrder do
+    fo[#fo + 1] = tostring(State.foundOrder[i])
+  end
+  print("|cffffcc00[NHS]|r  foundOrder keys: " .. (#fo > 0 and table.concat(fo, ", ") or "(none)"))
+end
+
+if NHS.debugFoundSync == nil then
+  NHS.debugFoundSync = false
+end
+NHS.DebugDumpFoundSyncState = nhsDebugFoundSyncDump
 
 NHS.UnitSortKey = nhsUnitSortKey
 NHS.UnitIsInGroupRoster = nhsUnitIsInGroupRoster

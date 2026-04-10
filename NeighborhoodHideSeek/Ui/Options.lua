@@ -93,7 +93,7 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
   local optSeekerModeBtn = CreateFrame("Button", nil, optf, "UIPanelButtonTemplate")
   optSeekerModeBtn:SetSize(300, 26)
   optSeekerModeBtn:SetPoint("TOPLEFT", cbMini, "BOTTOMLEFT", -4, -12)
-  optSeekerModeBtn:SetText("Enter seeker mode")
+  optSeekerModeBtn:SetText("Enter Seeker Mode")
 
   local optSeekerHint = optf:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   optSeekerHint:SetPoint("TOPLEFT", optSeekerModeBtn, "BOTTOMLEFT", 0, -10)
@@ -105,7 +105,7 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
 
   local function syncSeekerModeOptionButton()
     local st = NHS.State
-    optSeekerModeBtn:SetText(st.seekerMode and "Leave seeker mode" or "Enter seeker mode")
+    optSeekerModeBtn:SetText(st.seekerMode and "Leave Seeker Mode" or "Enter Seeker Mode")
     if st.seekerMode then
       optSeekerModeBtn:SetEnabled(true)
     else

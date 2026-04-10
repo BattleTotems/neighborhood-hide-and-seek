@@ -135,6 +135,10 @@ local function refreshMainUi()
   local ui = B.getUI()
   if ui and ui.RefreshAll then
     ui.RefreshAll()
+  elseif NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
+  elseif NHS.SessionHudUpdate then
+    NHS.SessionHudUpdate()
   end
 end
 

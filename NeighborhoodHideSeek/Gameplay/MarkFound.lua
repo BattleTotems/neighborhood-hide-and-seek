@@ -2,6 +2,10 @@
   Designated seeker: mark target found (manual + auto on PLAYER_TARGET_CHANGED).
   Expects GameSession exports, GroupSync.BroadcastSeekerFound, SeekerModeBridge.getUI.
   Load after GroupSync.lua (see .toc).
+
+  Non-leader seeker: we update this client's found list first (foundSet / foundOrder), then
+  BroadcastSeekerFound, then NHS.RefreshGameSessionUi (main frame if built, else session HUD only).
+  Debug: /nhs debugfound — prints roster + keys when a step is blocked (debugFoundSync on).
 ]]
 
 local NHS = NeighborhoodHideSeek
@@ -25,6 +29,9 @@ local function markTargetFound(opts)
     return
   end
   if not NHS.LocalPlayerIsDesignatedSeeker() then
+    if NHS.debugFoundSync and NHS.DebugDumpFoundSyncState then
+      NHS.DebugDumpFoundSyncState("Mark found blocked: LocalPlayerIsDesignatedSeeker is false")
+    end
     if not quiet then
       print("|cffff8800[NHS]|r Only the designated seeker can mark players found.")
     end
@@ -80,9 +87,15 @@ local function markTargetFound(opts)
   State.foundOrder[#State.foundOrder + 1] = key
   print(("|cff88ff88[NHS]|r Marked found: %s"):format(disp))
   NHS.GroupSync.BroadcastSeekerFound(key)
-  local UI = B.getUI()
-  if UI.RefreshFound then
-    UI.RefreshFound()
+  if NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
+  else
+    local UI = B.getUI()
+    if UI.RefreshFound then
+      UI.RefreshFound()
+    elseif NHS.SessionHudUpdate then
+      NHS.SessionHudUpdate()
+    end
   end
   NHS.PersistGameSessionToSaved()
 end
@@ -96,6 +109,9 @@ nhsSeekerAutoMarkFrame:SetScript("OnEvent", function()
     return
   end
   if not NHS.LocalPlayerIsDesignatedSeeker() then
+    if NHS.debugFoundSync and NHS.DebugDumpFoundSyncState then
+      NHS.DebugDumpFoundSyncState("Auto mark (target change) blocked: not designated seeker")
+    end
     return
   end
   markTargetFound({ quiet = true })
