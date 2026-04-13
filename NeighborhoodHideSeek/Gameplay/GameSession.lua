@@ -432,6 +432,9 @@ local function nhsResetGameSession()
   State.remoteSessionActive = false
   wipe(State.pastRounds)
   clearFound()
+  if State.seekerMode and NHS.SetSeekerMode then
+    NHS.SetSeekerMode(false)
+  end
   ensureSavedVars()
   NHSV.gameRounds = nil
   NHS.SessionHudUpdate()
