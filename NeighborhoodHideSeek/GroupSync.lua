@@ -1,5 +1,7 @@
 --[[
-  Party/raid [NHS] chat lines and addon comm (CHAT_MSG_ADDON + visible party/raid).
+  Group sync: CHAT_MSG_ADDON only (no party/raid chat listeners — avoids combat/instance limits).
+  Leaders/seekers still SendChatMessage the same lines for humans when not InCombatLockdown();
+  addon payload always sent so followers stay in sync.
   Core.lua assigns GroupSyncBridge; Gameplay/GameSession.lua patches roster/persist/sync fields;
   Gameplay/SessionHud.lua patches nhsSessionHudUpdate — load GameSession and SessionHud before
   this file (see .toc).
@@ -86,9 +88,20 @@ local function nhsChatSenderIsGroupLeader(senderName)
   return false
 end
 
--- Party: normal party chat. Raid: raid warning (center screen) so [NHS] sync stands out.
+-- Party: normal party chat. Raid: raid warning (center screen) so [NHS] lines stand out in chat.
 local function nhsGroupSyncChannel()
   return IsInRaid() and "RAID_WARNING" or "PARTY"
+end
+
+-- Visible chat for players; Blizzard can block or error this in combat — skip and rely on addon sync.
+local function nhsGameplaySendChatIfOutOfCombat(text, channel)
+  if not text or text == "" or not channel then
+    return
+  end
+  if InCombatLockdown() then
+    return
+  end
+  pcall(SendChatMessage, text, channel)
 end
 
 local function nhsBroadcastLeaderSync(message)
@@ -98,7 +111,7 @@ local function nhsBroadcastLeaderSync(message)
   if #message > 255 then
     return
   end
-  pcall(SendChatMessage, message, nhsGroupSyncChannel())
+  nhsGameplaySendChatIfOutOfCombat(message, nhsGroupSyncChannel())
   nhsSendAddonSyncPayload(message)
 end
 
@@ -114,7 +127,7 @@ local function nhsBroadcastHouseLocked(display)
   nhsBroadcastLeaderSync(msg)
 end
 
--- Second line after [NHS] House: … — waypoint link or coordinate text (not an [NHS] tag line).
+-- After [NHS] House: … — waypoint link in chat for players (when out of combat) + [NHS] coords on addon for sync.
 local function nhsBroadcastGameplayHousePin(entry, rowIndex, labelText, stableKey)
   if not IsInGroup() or not C.nhsIsRoundLeader() then
     return
@@ -129,17 +142,19 @@ local function nhsBroadcastGameplayHousePin(entry, rowIndex, labelText, stableKe
   if not mapID or mapID == 0 or x == nil or y == nil then
     return
   end
-  local link = NHS.HousingPinShare.BuildWaypointHyperlink(mapID, x, y)
-  if link and #link <= 255 then
-    local ok = pcall(SendChatMessage, link, nhsGroupSyncChannel())
-    if ok then
-      return
-    end
-  end
+  local ch = nhsGroupSyncChannel()
   local fb = NHS.HousingPinShare.CoordinateMessage(mapID, x, y, labelText)
   fb = NHS.HousingPinShare.SanitizeForChat(fb)
   if fb ~= "" and #fb <= 255 then
-    pcall(SendChatMessage, fb, nhsGroupSyncChannel())
+    nhsSendAddonSyncPayload(fb)
+  end
+  local link = NHS.HousingPinShare.BuildWaypointHyperlink(mapID, x, y)
+  if link and #link <= 255 then
+    nhsGameplaySendChatIfOutOfCombat(link, ch)
+    return
+  end
+  if fb ~= "" and #fb <= 255 then
+    nhsGameplaySendChatIfOutOfCombat(fb, ch)
   end
 end
 
@@ -252,7 +267,7 @@ local function nhsBroadcastSeekerFound(foundKey)
   if #msg > 255 then
     return
   end
-  pcall(SendChatMessage, msg, nhsSeekerFoundSyncChannel())
+  nhsGameplaySendChatIfOutOfCombat(msg, nhsSeekerFoundSyncChannel())
   nhsSendAddonSyncPayload(msg)
 end
 
@@ -335,14 +350,18 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       end
     end
   end
-  C.nhsSeekerAutoModeSyncToPhase()
+  if C.nhsSeekerAutoModeSyncToPhase then
+    C.nhsSeekerAutoModeSyncToPhase()
+  end
   if C.UI.RefreshAll then
     C.UI.RefreshAll()
   elseif C.UI.RefreshGameRounds then
     C.UI.RefreshGameRounds()
   end
   C.nhsPersistGameSessionToSaved()
-  C.nhsSessionHudUpdate()
+  if C.nhsSessionHudUpdate then
+    C.nhsSessionHudUpdate()
+  end
 end
 
 NHS.GroupSync = {
@@ -361,7 +380,7 @@ B.NHS_MSG_GAME_OVER = NHS_MSG_GAME_OVER
 B.nhsBroadcastHouseLocked = nhsBroadcastHouseLocked
 B.nhsBroadcastGameplayHousePin = nhsBroadcastGameplayHousePin
 
--- Dedupe when the same NHS line arrives via addon comm and visible chat in the same tick (or twice).
+-- Dedupe duplicate addon lines in the same tick (or rapid resends).
 local nhsSyncDedupeAt, nhsSyncDedupeKey = 0, nil
 local function nhsGroupSyncLineRecentlyHandled(senderName, text)
   local sk = type(senderName) == "string" and Ambiguate(senderName, "none") or ""
@@ -393,6 +412,20 @@ local function nhsDispatchGroupNhsLine(senderName, text)
   nhsApplyGroupSyncFromLeader(senderName, text)
 end
 
+-- Route through the client error handler so a bad line does not silently break sync (and BugSack can capture it).
+local function nhsDispatchGroupNhsLineSafe(senderName, text)
+  local ok, err = pcall(nhsDispatchGroupNhsLine, senderName, text)
+  if ok then
+    return
+  end
+  local fn = geterrorhandler and geterrorhandler()
+  if fn then
+    fn(err)
+  else
+    print("|cffff4444[NHS]|r Group sync: " .. tostring(err))
+  end
+end
+
 local function nhsAddonCommChannelAllowed(channel)
   if type(channel) ~= "string" or channel == "" then
     return false
@@ -407,32 +440,19 @@ end
 
 local nhsSyncChatFrame = CreateFrame("Frame")
 nhsSyncChatFrame:RegisterEvent("CHAT_MSG_ADDON")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_PARTY")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID_LEADER")
-nhsSyncChatFrame:RegisterEvent("CHAT_MSG_RAID_WARNING")
 nhsSyncChatFrame:SetScript("OnEvent", function(_, event, ...)
-  if event == "CHAT_MSG_ADDON" then
-    local prefix, msg, channel, sender = ...
-    if prefix ~= NHS_ADDON_PREFIX then
-      return
-    end
-    if not nhsAddonCommChannelAllowed(channel) then
-      return
-    end
-    if type(msg) ~= "string" or msg:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
-      return
-    end
-    nhsDispatchGroupNhsLine(sender, msg)
+  if event ~= "CHAT_MSG_ADDON" then
     return
   end
-  if InCombatLockdown() then
+  local prefix, msg, channel, sender = ...
+  if prefix ~= NHS_ADDON_PREFIX then
     return
   end
-  local text, sender = ...
-  if type(text) ~= "string" or text:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
+  if not nhsAddonCommChannelAllowed(channel) then
     return
   end
-  nhsDispatchGroupNhsLine(sender, text)
+  if type(msg) ~= "string" or msg:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
+    return
+  end
+  nhsDispatchGroupNhsLineSafe(sender, msg)
 end)

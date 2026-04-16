@@ -692,7 +692,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
         return
       end
       if ingroup and State.remoteRoundActive then
-        roundsHint:SetText("Party / raid sync (leader chat)")
+        roundsHint:SetText("Group sync (addon); party/raid lines when out of combat")
         orphanSessionBtn:Hide()
         layoutGameplayBlock(f, 16, -40, false)
         layoutGameplayDetailsFooter(B.nhsSessionHudIsActive())

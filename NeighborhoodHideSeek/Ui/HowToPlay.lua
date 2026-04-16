@@ -52,8 +52,8 @@ local NHS_HOW_TO_PLAY_SECTIONS = {
     title = "Houses",
     body = table.concat({
       "• The house list of the current neighborhood is shown. Houses can be selected and saved with a size preset.",
-      houseSizePresetMinuteBullets(),
       "• Houses can be removed or edited once saved to your saved list.",
+      houseSizePresetsMinutesBullet(),
     }, "\n"),
   },
   {

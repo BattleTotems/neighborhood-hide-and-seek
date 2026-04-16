@@ -37,9 +37,9 @@ local State = {
   gameLockedSeekerDisplay = nil,
   gameSeekerHistory = {},
   gameRotationUsed = {},
-  -- Follower: last house line from leader chat sync.
+  -- Follower: last house line from leader addon sync (same text may appear in party/raid when out of combat).
   remoteHouseDisplay = nil,
-  -- Round flow for leader + party/raid sync (followers listen to leader chat)
+  -- Round flow: leader/seeker addon messages; optional party/raid chat for players when not in combat lockdown.
   roundPhase = "none", -- none | pending (preparing) | hiding | searching
   remoteRoundActive = false,
   remoteSeekerKey = nil,
