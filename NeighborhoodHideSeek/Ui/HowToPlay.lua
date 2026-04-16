@@ -3,7 +3,7 @@
   Loaded after Core.lua; see NeighborhoodHideSeek.toc (Ui/HowToPlay.lua).
 ]]
 
-local function houseSizePresetMinuteBullets()
+local function houseSizePresetsMinutesBullet()
   local pr = NeighborhoodHideSeek.ROUND_PRESETS
   if not pr or #pr == 0 then
     return "• Size presets set hiding and searching time for rounds (hover the preset buttons in the house list for details)."
@@ -52,8 +52,8 @@ local NHS_HOW_TO_PLAY_SECTIONS = {
     title = "Houses",
     body = table.concat({
       "• The house list of the current neighborhood is shown. Houses can be selected and saved with a size preset.",
-      "• Houses can be removed or edited once saved to your saved list.",
       houseSizePresetsMinutesBullet(),
+      "• Houses can be removed or edited once saved to your saved list.",
     }, "\n"),
   },
   {

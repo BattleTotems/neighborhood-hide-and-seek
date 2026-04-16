@@ -28,7 +28,7 @@ local ROUND_PRESETS = {
   { label = "Small", hideSec = 180, searchSec = 240 },
   { label = "Medium", hideSec = 240, searchSec = 360 },
   { label = "Large", hideSec = 300, searchSec = 480 },
-  { label = "Theme Park", hideSec = 300, searchSec = 600 },
+  { label = "Oversized", hideSec = 300, searchSec = 600 },
 }
 NHS.ROUND_PRESETS = ROUND_PRESETS
 
