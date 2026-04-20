@@ -62,11 +62,10 @@ local function nhsMinimapButton_OnDragUpdate(self)
   self._dragAngle = angle
 end
 
-function NHS.InitMinimapButton()
+local function nhsMinimapButton_Create()
   if nhsMinimapButton or not Minimap then
     return
   end
-  ensureSavedVars()
   local b = CreateFrame("Button", ADDON_NAME .. "MinimapButton", Minimap)
   nhsMinimapButton = b
   b:SetSize(32, 32)
@@ -125,6 +124,7 @@ function NHS.InitMinimapButton()
     GameTooltip:SetText("Neighborhood Hide & Seek", 1, 1, 1)
     GameTooltip:AddLine("Click to open or close the window.", 1, 1, 1, true)
     GameTooltip:AddLine("Right-drag to move this icon.", 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine("/nhs visitinfo — why Visit may do nothing", 0.6, 0.6, 0.6, true)
     GameTooltip:AddLine("/nhs", 0.6, 0.6, 0.6, true)
     GameTooltip:Show()
   end)
@@ -141,5 +141,24 @@ function NHS.InitMinimapButton()
     end
     nhsMinimapButton_ApplyPosition()
   end)
-  nhsMinimapButton_ApplyPosition()
+end
+
+function NHS.InitMinimapButton()
+  if not Minimap then
+    return
+  end
+  ensureSavedVars()
+  if NHSV.showMinimapButton == false then
+    if nhsMinimapButton then
+      nhsMinimapButton:Hide()
+    end
+    return
+  end
+  if not nhsMinimapButton then
+    nhsMinimapButton_Create()
+  end
+  if nhsMinimapButton then
+    nhsMinimapButton:Show()
+    nhsMinimapButton_ApplyPosition()
+  end
 end

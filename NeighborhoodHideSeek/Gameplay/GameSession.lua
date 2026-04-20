@@ -177,6 +177,24 @@ local function nhsStopPartyCountdown()
   end
 end
 
+-- Master toggle for addon gameplay SFX (Options → Gameplay).
+local function nhsGameplaySoundsEnabled()
+  ensureSavedVars()
+  return NHSV.gameplaySoundsEnabled ~= false
+end
+
+-- Karazhan Opera (Big Bad Wolf): HoodWolf transform / "Run away little girl!" (Wowhead sound kit 9278).
+-- Hiders only: the designated seeker skips (cue is for people hiding).
+local function nhsPlayHidingPhaseStartSound()
+  if not nhsGameplaySoundsEnabled() then
+    return
+  end
+  if NHS.LocalPlayerIsDesignatedSeeker and NHS.LocalPlayerIsDesignatedSeeker() then
+    return
+  end
+  pcall(PlaySound, 9278, "Master")
+end
+
 -- Saved to NHSV.gameRounds so sessions survive /reload and match in-memory state after travel.
 local function nhsFoundOrderSnapshot()
   local t = {}
@@ -232,6 +250,18 @@ local function nhsRestorePastRoundsFromSave(list)
   end
 end
 
+-- When no live session is saved in NHSV.gameRounds, completed rounds from the last ended session
+-- are restored from NHSV.lastCompletedPastRounds (see nhsResetGameSession / follower game over).
+local function nhsArchiveCompletedPastRoundsForReload()
+  ensureSavedVars()
+  NHSV.lastCompletedPastRounds = nhsPastRoundsSnapshotForSave()
+end
+
+local function nhsClearCompletedPastRoundsArchive()
+  ensureSavedVars()
+  NHSV.lastCompletedPastRounds = nil
+end
+
 local function nhsPersistGameSessionToSaved()
   ensureSavedVars()
   local foundSnap = nhsFoundOrderSnapshot()
@@ -257,6 +287,7 @@ local function nhsPersistGameSessionToSaved()
       sessionActive = true,
       clientMode = "leader",
       phase = State.gamePhase,
+      houseListSource = State.gameSessionHouseListSource or "pending",
       roundPhase = State.roundPhase,
       houseCandidateKey = State.gameHouseCandidateKey,
       houseCandidateDisplay = State.gameHouseCandidateDisplay,
@@ -291,6 +322,7 @@ local function nhsPersistGameSessionToSaved()
       remoteRoundActive = State.remoteRoundActive and true or false,
       remoteSeekerKey = State.remoteSeekerKey,
       remoteHouseDisplay = State.remoteHouseDisplay,
+      remoteLeaderGamePhase = State.remoteLeaderGamePhase,
       roundPhase = State.roundPhase,
       houseHistory = houseHist,
       seekerHistory = seekHist,
@@ -306,6 +338,7 @@ local function nhsHydrateGameSessionFromSaved()
   ensureSavedVars()
   local s = NHSV.gameRounds
   if not s or not s.sessionActive then
+    nhsRestorePastRoundsFromSave(NHSV.lastCompletedPastRounds)
     NHS.SessionHudUpdate()
     return
   end
@@ -320,6 +353,21 @@ local function nhsHydrateGameSessionFromSaved()
     State.remoteRoundActive = s.remoteRoundActive and true or false
     State.remoteSeekerKey = s.remoteSeekerKey
     State.remoteHouseDisplay = s.remoteHouseDisplay
+    local rgp = s.remoteLeaderGamePhase
+    if
+      type(rgp) == "string"
+      and (rgp == "pick_house" or rgp == "pick_seeker" or rgp == "round_active" or rgp == "none")
+    then
+      State.remoteLeaderGamePhase = rgp
+    elseif State.remoteRoundActive then
+      State.remoteLeaderGamePhase = "round_active"
+    elseif State.remoteHouseDisplay and State.remoteHouseDisplay ~= "" then
+      State.remoteLeaderGamePhase = "pick_seeker"
+    elseif State.remoteSessionActive then
+      State.remoteLeaderGamePhase = "pick_house"
+    else
+      State.remoteLeaderGamePhase = "none"
+    end
     State.roundPhase = (type(s.roundPhase) == "string" and s.roundPhase ~= "") and s.roundPhase or "none"
     wipe(State.gameHouseHistory)
     for i, v in ipairs(s.houseHistory or {}) do
@@ -352,6 +400,20 @@ local function nhsHydrateGameSessionFromSaved()
     return
   end
   State.gameSessionActive = true
+  local src = s.houseListSource
+  if src == "neighborhood" or src == "saved" or src == "group" then
+    State.gameSessionHouseListSource = src
+  elseif src == "pending" then
+    State.gameSessionHouseListSource = nil
+  else
+    -- Legacy saves had no houseListSource; honor old Options toggle once.
+    ensureSavedVars()
+    if NHSV.selectHouseFromSavedList == false then
+      State.gameSessionHouseListSource = "neighborhood"
+    else
+      State.gameSessionHouseListSource = "saved"
+    end
+  end
   local ph = s.phase
   if ph == "round_active" or ph == "pick_seeker" or ph == "pick_house" then
     State.gamePhase = ph
@@ -411,6 +473,7 @@ local function nhsResetGameSession()
   nhsLeaderDemoteSeekerAssistantIfWePromoted()
   State.gameSessionActive = false
   State.gamePhase = "none"
+  State.gameSessionHouseListSource = nil
   State.gameHouseCandidateKey = nil
   State.gameHouseCandidateDisplay = nil
   State.gameLockedHouseKey = nil
@@ -430,12 +493,12 @@ local function nhsResetGameSession()
   State.remoteRoundActive = false
   State.remoteSeekerKey = nil
   State.remoteSessionActive = false
-  wipe(State.pastRounds)
+  State.remoteLeaderGamePhase = "none"
   clearFound()
   if State.seekerMode and NHS.SetSeekerMode then
     NHS.SetSeekerMode(false)
   end
-  ensureSavedVars()
+  nhsArchiveCompletedPastRoundsForReload()
   NHSV.gameRounds = nil
   NHS.SessionHudUpdate()
 end
@@ -739,7 +802,11 @@ NHS.CanonicalGroupSortKey = nhsCanonicalGroupSortKey
 NHS.RosterIdentityEqual = nhsRosterIdentityEqual
 NHS.HydrateGameSessionFromSaved = nhsHydrateGameSessionFromSaved
 NHS.PersistGameSessionToSaved = nhsPersistGameSessionToSaved
+NHS.ArchiveCompletedPastRoundsForReload = nhsArchiveCompletedPastRoundsForReload
+NHS.ClearCompletedPastRoundsArchive = nhsClearCompletedPastRoundsArchive
 NHS.PickRandomSeekerMember = nhsPickRandomSeekerMember
+NHS.PlayHidingPhaseStartSound = nhsPlayHidingPhaseStartSound
+NHS.GameplaySoundsEnabled = nhsGameplaySoundsEnabled
 
 local bmf = NHS.BuildMainFrameBridge
 if bmf then

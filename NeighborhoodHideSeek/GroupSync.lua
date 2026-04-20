@@ -14,7 +14,8 @@ local NHS_CHAT_TAG = "[NHS]"
 local NHS_MSG_ROUND_START = "[NHS] Round Start: "
 local NHS_MSG_SESSION_START = "[NHS] Game session started"
 local NHS_MSG_HOUSE = "[NHS] House: "
-local NHS_MSG_HIDING = "[NHS] Hiding Starts Now: "
+-- Addon + visible chat line (no seeker suffix; roster key comes from Round Start / saved state).
+local NHS_MSG_HIDING = "[NHS] Hiding Starts Now"
 local NHS_MSG_SEEKING = "[NHS] The Seeking Begins!: "
 local NHS_MSG_ROUND_OVER = "[NHS] Round is over!"
 local NHS_MSG_GAME_OVER = "[NHS] Game Over! Thanks for playing!"
@@ -35,9 +36,17 @@ local function nhsSeekerFoundSyncChannel()
   return "PARTY"
 end
 
--- PARTY reaches party members in open world and in most instances; RAIDs use RAID.
+-- PARTY for open-world groups; RAID for raids; INSTANCE_CHAT for LFG/instance squads (PARTY/RAID
+-- addon delivery can fail there — followers would stay on "Preparing" if phase lines never arrive).
 local function nhsAddonSyncChatType()
-  return IsInRaid() and "RAID" or "PARTY"
+  if IsInRaid() then
+    return "RAID"
+  end
+  local inst = LE_PARTY_CATEGORY_INSTANCE or 2
+  if IsInGroup(inst) then
+    return "INSTANCE_CHAT"
+  end
+  return "PARTY"
 end
 
 local function nhsSendAddonSyncPayload(message)
@@ -130,7 +139,7 @@ end
 -- After [NHS] House: … — waypoint link in chat for players (when out of combat) + [NHS] coords on addon for sync.
 local function nhsBroadcastGameplayHousePin(entry, rowIndex, labelText, stableKey)
   if not IsInGroup() or not C.nhsIsRoundLeader() then
-    return
+    return false
   end
   local mapID, x, y
   if entry ~= nil and rowIndex ~= nil then
@@ -140,22 +149,26 @@ local function nhsBroadcastGameplayHousePin(entry, rowIndex, labelText, stableKe
     mapID, x, y = NHS.SavedHouses.GetSavedHousePinCoords(stableKey)
   end
   if not mapID or mapID == 0 or x == nil or y == nil then
-    return
+    return false
   end
   local ch = nhsGroupSyncChannel()
   local fb = NHS.HousingPinShare.CoordinateMessage(mapID, x, y, labelText)
   fb = NHS.HousingPinShare.SanitizeForChat(fb)
+  local sentAddon = false
   if fb ~= "" and #fb <= 255 then
     nhsSendAddonSyncPayload(fb)
+    sentAddon = true
   end
   local link = NHS.HousingPinShare.BuildWaypointHyperlink(mapID, x, y)
   if link and #link <= 255 then
     nhsGameplaySendChatIfOutOfCombat(link, ch)
-    return
+    return true
   end
   if fb ~= "" and #fb <= 255 then
     nhsGameplaySendChatIfOutOfCombat(fb, ch)
+    return true
   end
+  return sentAddon
 end
 
 local function nhsClearRemoteRoundSync()
@@ -181,6 +194,7 @@ local function nhsRemoteFollowerSyncRoundState(key, phase)
   C.State.remoteRoundActive = true
   C.State.remoteSeekerKey = key
   C.State.roundPhase = phase
+  C.State.remoteLeaderGamePhase = "round_active"
 end
 
 -- Returns true if this was an [NHS] Found: line (handled or ignored); false otherwise.
@@ -201,6 +215,7 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
           C.State.remoteRoundActive = true
           C.State.remoteSeekerKey = m.key
           C.State.roundPhase = "searching"
+          C.State.remoteLeaderGamePhase = "round_active"
           break
         end
       end
@@ -290,53 +305,84 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
   if seekerPart and seekerPart ~= "" then
     local key = Ambiguate(seekerPart:match("^%s*(.-)%s*$") or seekerPart, "none")
     if key and key ~= "" then
-      C.clearFound()
-      C.State.remoteSessionActive = true
-      C.State.remoteRoundActive = true
-      C.State.remoteSeekerKey = key
-      C.State.roundPhase = "pending"
-      C.State.gameSeekerHistory[#C.State.gameSeekerHistory + 1] = Ambiguate(key, "short")
+      local sameRound = false
+      if C.State.remoteRoundActive and C.State.remoteSeekerKey then
+        if C.nhsRosterIdentityEqual then
+          sameRound = C.nhsRosterIdentityEqual(C.State.remoteSeekerKey, key)
+        else
+          sameRound = C.State.remoteSeekerKey == key
+        end
+      end
+      if sameRound then
+        C.State.remoteSessionActive = true
+      else
+        C.clearFound()
+        C.State.remoteSessionActive = true
+        C.State.remoteRoundActive = true
+        C.State.remoteSeekerKey = key
+        C.State.roundPhase = "pending"
+        C.State.remoteLeaderGamePhase = "round_active"
+        C.State.gameSeekerHistory[#C.State.gameSeekerHistory + 1] = Ambiguate(key, "short")
+      end
     end
   elseif text:match("^%[NHS%]%s*Game session started%s*$") then
     C.State.remoteSessionActive = true
+    C.State.remoteLeaderGamePhase = "pick_house"
     wipe(C.State.gameSeekerHistory)
     wipe(C.State.gameHouseHistory)
     wipe(C.State.pastRounds)
+    if NHS.ClearCompletedPastRoundsArchive then
+      NHS.ClearCompletedPastRoundsArchive()
+    end
     C.State.remoteHouseDisplay = nil
   elseif text:match("^%[NHS%]%s*House:%s*.+") then
     local housePart = text:match("^%[NHS%]%s*House:%s*(.+)%s*$")
     if housePart then
       C.State.remoteSessionActive = true
+      C.State.remoteLeaderGamePhase = "pick_seeker"
       local disp = housePart:match("^%s*(.-)%s*$") or housePart
       C.State.remoteHouseDisplay = disp
-      C.State.gameHouseHistory[#C.State.gameHouseHistory + 1] = disp
+      if C.State.gameHouseHistory[#C.State.gameHouseHistory] ~= disp then
+        C.State.gameHouseHistory[#C.State.gameHouseHistory + 1] = disp
+      end
     end
   elseif text:match("^%[NHS%]%s*Round is over!%s*$") then
     C.nhsAppendPastRoundSnapshotIfActiveRound()
     nhsClearRemoteRoundSync()
     C.State.remoteHouseDisplay = nil
+    C.State.remoteLeaderGamePhase = "pick_house"
     if C.State.seekerMode and NHS.SetSeekerMode then
       NHS.SetSeekerMode(false)
     end
   elseif text:match("^%[NHS%]%s*Game Over! Thanks for playing!%s*$") then
     C.nhsStopPartyCountdown()
+    if NHS.ArchiveCompletedPastRoundsForReload then
+      NHS.ArchiveCompletedPastRoundsForReload()
+    end
     C.State.remoteSessionActive = false
+    C.State.remoteLeaderGamePhase = "none"
     wipe(C.State.gameSeekerHistory)
     wipe(C.State.gameHouseHistory)
-    wipe(C.State.pastRounds)
     C.State.remoteHouseDisplay = nil
     nhsClearRemoteRoundSync()
     if C.State.seekerMode and NHS.SetSeekerMode then
       NHS.SetSeekerMode(false)
     end
   else
+    -- Legacy (pre–no-suffix): seeker after colon; still accepted from older clients.
     local hideKey = text:match("^%[NHS%]%s*Hiding Starts Now:%s*(.+)%s*$")
     if hideKey then
       nhsRemoteFollowerSyncRoundState(hideKey, "hiding")
+      if NHS.PlayHidingPhaseStartSound then
+        NHS.PlayHidingPhaseStartSound()
+      end
     elseif text:match("^%[NHS%]%s*Hiding Starts Now%s*$") then
       C.State.remoteSessionActive = true
       if C.State.remoteRoundActive then
         C.State.roundPhase = "hiding"
+        if NHS.PlayHidingPhaseStartSound then
+          NHS.PlayHidingPhaseStartSound()
+        end
       end
     else
       local seekKey = text:match("^%[NHS%]%s*The Seeking Begins!:%s*(.+)%s*$")
@@ -364,9 +410,104 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
   end
 end
 
+-- After /reload or zoning: followers may still show "Preparing" if they missed HIDING/SEEKING addon
+-- lines. Addon-only (no party/raid chat): live phase transitions already posted chat; repeating
+-- RAID_WARNING on every PEW was noisy. Pick-house / pick-seeker never hit this path.
+local function nhsLeaderRebroadcastActiveRoundPhaseIfNeeded()
+  if not IsInGroup() or not C.nhsIsRoundLeader or not C.nhsIsRoundLeader() then
+    return
+  end
+  if not C.State.gameSessionActive or C.State.gamePhase ~= "round_active" then
+    return
+  end
+  local rp = C.State.roundPhase
+  if rp ~= "hiding" and rp ~= "searching" then
+    return
+  end
+  local key = C.State.gameLockedSeekerKey
+  if rp == "hiding" then
+    nhsSendAddonSyncPayload(NHS_MSG_HIDING)
+  elseif rp == "searching" then
+    if type(key) == "string" and key ~= "" then
+      nhsSendAddonSyncPayload(NHS_MSG_SEEKING .. key)
+    else
+      nhsSendAddonSyncPayload("[NHS] The Seeking Begins!")
+    end
+  end
+end
+
+-- Leader-only: replay the same addon lines a new joiner would need, in order, so the group
+-- converges on the leader’s current phase (safe duplicates: House history dedupes; Round Start
+-- no-ops when the same seeker round is already active).
+local function nhsLeaderBroadcastGameplayCatchUpSync()
+  if not IsInGroup() then
+    return false, "Join a party or raid to sync with other players."
+  end
+  if not C.nhsIsRoundLeader or not C.nhsIsRoundLeader() then
+    return false, "Only the party/raid leader can send group catch-up sync."
+  end
+  if not C.State.gameSessionActive then
+    return false, "Start a game session first."
+  end
+
+  local sent = false
+  local function mark()
+    sent = true
+  end
+
+  local gp = C.State.gamePhase
+
+  if gp == "pick_house" then
+    nhsBroadcastLeaderSync(NHS_MSG_SESSION_START)
+    mark()
+  elseif gp == "pick_seeker" then
+    if not (C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "") then
+      return false, "Confirm a house first so group sync can re-send it."
+    end
+    nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay)
+    mark()
+    if C.State.gameLockedHouseKey then
+      nhsBroadcastGameplayHousePin(
+        C.State.gameLockedHouseLiveEntry,
+        C.State.gameLockedHouseLiveIndex,
+        C.State.gameLockedHouseDisplay,
+        C.State.gameLockedHouseKey
+      )
+    end
+  elseif gp == "round_active" then
+    if C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "" and C.State.gameLockedHouseKey then
+      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay)
+      mark()
+      nhsBroadcastGameplayHousePin(
+        C.State.gameLockedHouseLiveEntry,
+        C.State.gameLockedHouseLiveIndex,
+        C.State.gameLockedHouseDisplay,
+        C.State.gameLockedHouseKey
+      )
+    end
+    local key = C.State.gameLockedSeekerKey
+    if type(key) == "string" and key ~= "" then
+      nhsBroadcastLeaderSync(NHS_MSG_ROUND_START .. tostring(key))
+      mark()
+    end
+    local rp = C.State.roundPhase
+    if rp == "hiding" or rp == "searching" then
+      nhsLeaderRebroadcastActiveRoundPhaseIfNeeded()
+      mark()
+    end
+  end
+
+  if not sent then
+    return false, "Nothing to sync — start a round (lock a seeker) so re-send can include round lines."
+  end
+  return true
+end
+
 NHS.GroupSync = {
   BroadcastSeekerFound = nhsBroadcastSeekerFound,
   ClearRemoteRound = nhsClearRemoteRoundSync,
+  LeaderRebroadcastActiveRoundPhaseIfNeeded = nhsLeaderRebroadcastActiveRoundPhaseIfNeeded,
+  LeaderBroadcastGameplayCatchUpSync = nhsLeaderBroadcastGameplayCatchUpSync,
 }
 
 local B = NHS.BuildMainFrameBridge
@@ -379,6 +520,7 @@ B.NHS_MSG_ROUND_OVER = NHS_MSG_ROUND_OVER
 B.NHS_MSG_GAME_OVER = NHS_MSG_GAME_OVER
 B.nhsBroadcastHouseLocked = nhsBroadcastHouseLocked
 B.nhsBroadcastGameplayHousePin = nhsBroadcastGameplayHousePin
+B.nhsLeaderBroadcastGameplayCatchUpSync = nhsLeaderBroadcastGameplayCatchUpSync
 
 -- Dedupe duplicate addon lines in the same tick (or rapid resends).
 local nhsSyncDedupeAt, nhsSyncDedupeKey = 0, nil

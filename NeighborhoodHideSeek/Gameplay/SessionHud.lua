@@ -53,8 +53,18 @@ local function nhsSessionHudPhaseText()
     end
     return "Round active"
   end
-  if State.remoteSessionActive then
-    return "Waiting for round"
+  -- Follower: leader setup (mirrored from addon lines; see GroupSync nhsApplyGroupSyncFromLeader).
+  if not State.gameSessionActive and State.remoteSessionActive and not State.remoteRoundActive then
+    if State.remoteLeaderGamePhase == "pick_house" then
+      return "House selection"
+    end
+    if State.remoteLeaderGamePhase == "pick_seeker" then
+      return "Seeker selection"
+    end
+    if State.remoteHouseDisplay and State.remoteHouseDisplay ~= "" then
+      return "Seeker selection"
+    end
+    return "House selection"
   end
   return "—"
 end
@@ -278,6 +288,7 @@ local bmf = NHS.BuildMainFrameBridge
 if bmf then
   bmf.nhsSessionHudUpdate = nhsSessionHudUpdate
   bmf.nhsSessionHudIsActive = nhsSessionHudIsActive
+  bmf.nhsSessionHudPhaseText = nhsSessionHudPhaseText
   bmf.nhsSessionHudHiddenFormatted = nhsSessionHudHiddenFormatted
   bmf.nhsSessionHudFoundFormatted = nhsSessionHudFoundFormatted
   bmf.nhsSessionHudHouseText = nhsSessionHudHouseText

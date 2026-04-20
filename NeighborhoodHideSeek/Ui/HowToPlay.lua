@@ -23,7 +23,8 @@ end
 local NHS_HOW_TO_PLAY_SECTIONS = {
   {
     title = "Overview",
-    body = "Neighborhood Hide & Seek is to help you run a game of hide and seek with a group of friends in your neighborhood. The party/raid leader keeps the game running and moves through the phases. You can create your own saved list of houses to use or just play in the neighborhood you are standing in. In each round a house and seeker are picked. As a group decide if the group is hiding inside or outside of the house.",
+    body = NeighborhoodHideSeek.ABOUT_BLURB
+      or "Neighborhood Hide & Seek is to help you run a game of hide and seek with a group of friends.",
   },
   {
     title = "Gameplay",
@@ -41,7 +42,7 @@ local NHS_HOW_TO_PLAY_SECTIONS = {
     title = "Game control (leader only)",
     body = table.concat({
       "• Start game session — begins a session. End game session stops it.",
-      "• House selection — Select a house randomly or a specifically from either your saved list or the current neighborhood. Random house avoids repeats until everyone has been used once.",
+      "• House selection — When the session starts, the leader picks one list for the whole session: neighborhood houses, saved houses (with sizes), or group members (each player visits via Housing). Then pick a house at random or from the list. Random house avoids repeats until every entry in that list has been used once.",
       "• Seeker selection — Select a seeker randomly or a specifically from the group. Random seeker avoids repeats until everyone has been the seeker once.",
       "• In Preparing, use the hiding countdown presets (party countdown) to move to the next phase when the group is prepared. If a saved house is selected their size will be highlighted.",
       "• In Hiding, use the searching countdown presets to move to the next phase when the seeker starts searching. If a saved house is selected their size will be highlighted.",
@@ -144,6 +145,7 @@ function NeighborhoodHideSeek.CreateHowToPlayFrame()
   htpfCloseBtn:SetScript("OnClick", function()
     htpf:Hide()
   end)
+  htpf._nhsCloseButton = htpfCloseBtn
   htpf:Hide()
 
   return { frame = htpf }

@@ -14,9 +14,19 @@ local Housing = {
   plotPinIndex = {},
 }
 
+-- Populated after housing refresh + C_Housing* neighborhood info getters (see housingInitNeighborhoodInfoListener).
+local housingLastInfoGuid = nil
+local housingLastSubdivisionIndex = nil
+-- Lazily built list of { fn, modes, label }; cleared in housingInvalidate.
+local housingSliceInfoGetterList = nil
+-- When discovery finds zero getters, avoid rebuilding every frame (still retries after cooldown).
+local housingSliceInfoGetterCooldownUntil = 0
+
 local HOUSING_NAMESPACE_KEYS = {
   "C_HousingNeighborhood",
   "C_Housing",
+  -- Slice / subdivision APIs may live here instead of C_Housing* (Midnight+).
+  "C_NeighborhoodInitiative",
 }
 
 -- Midnight exposes map/roster getters; older docs mentioned GetVisitableHouses.
@@ -108,12 +118,24 @@ local function housingResolve()
   return false
 end
 
+local function housingClearNeighborhoodInfoCache()
+  housingLastInfoGuid = nil
+  housingLastSubdivisionIndex = nil
+end
+
+local function housingClearSliceInfoGetterDiscovery()
+  housingSliceInfoGetterList = nil
+  housingSliceInfoGetterCooldownUntil = 0
+end
+
 local function housingInvalidate()
   Housing.listMethod = nil
   Housing.nsKey = nil
   Housing.lastNeighborhoodUiMapID = nil
   Housing.lastMapDataRoot = nil
   wipe(Housing.plotPinIndex)
+  housingClearNeighborhoodInfoCache()
+  housingClearSliceInfoGetterDiscovery()
 end
 
 local function housingCaptureRootMapId(result)
@@ -451,6 +473,22 @@ local function housingEntryHasMeaningfulNeighborData(entry)
   return false
 end
 
+-- True when the API supplied a display name for the occupant (plot-only stubs with ids only are false).
+local function housingEntryHasOwnerDisplay(entry)
+  if entry == nil or housingEntryIsExplicitPlaceholder(entry) then
+    return false
+  end
+  if type(entry) ~= "table" then
+    return false
+  end
+  for _, k in ipairs(HOUSING_MEANINGFUL_NAME_KEYS) do
+    if housingTrimNonEmpty(entry[k]) then
+      return true
+    end
+  end
+  return false
+end
+
 local function filterHouseEntries(list)
   local out = {}
   for _, v in ipairs(list) do
@@ -606,17 +644,24 @@ local function nhsPlotSortKeyFromSavedLabelOrKey(label, stableKey)
     return tn
   end
   if type(stableKey) == "string" then
+    -- SavedVariables key may append neighborhood after ASCII SOH (see SavedHouses persistence key).
+    local sk = stableKey
+    local sep = string.char(1)
+    local pos = sk:find(sep, 1, true)
+    if pos and pos > 1 then
+      sk = sk:sub(1, pos - 1)
+    end
     -- StableKeyFromEntry forms: p:/l:/slot:/n: — use embedded id for numeric sort.
     tn = tonumber(
-      stableKey:match("^p:(%d+)$")
-        or stableKey:match("^l:(%d+)$")
-        or stableKey:match("^slot:(%d+)$")
-        or stableKey:match("^n:(%d+)$")
+      sk:match("^p:(%d+)$")
+        or sk:match("^l:(%d+)$")
+        or sk:match("^slot:(%d+)$")
+        or sk:match("^n:(%d+)$")
     )
     if tn then
       return tn
     end
-    tn = tonumber((stableKey:match("^(%d+)")))
+    tn = tonumber((sk:match("^(%d+)")))
     if tn then
       return tn
     end
@@ -689,8 +734,462 @@ local function labelFromEntry(entry, fallbackIndex)
   return ("%s - %s"):format(num, name)
 end
 
+-- Tried after core getters; map / cornerstone often carry slice or plot context.
+local HOUSING_INFO_EXTRA_GETTERS = {
+  { name = "GetNeighborhoodMapData", modes = { "noarg", "guid" } },
+  { name = "GetCornerstoneNeighborhoodInfo", modes = { "noarg" } },
+}
+
+local HOUSING_INFO_NO_ARG_NAMES = {
+  -- Retail Midnight: slice metadata often comes from this after RequestCurrentHouseInfo.
+  "GetCurrentHouseInfo",
+  "GetCurrentNeighborhoodInfo",
+  "GetCurrentNeighborhoodHouseInfo",
+  "GetActiveNeighborhoodInfo",
+  "GetCurrentHouseNeighborhoodInfo",
+  "GetNeighborhoodSliceInfo",
+  "GetCurrentNeighborhoodSliceInfo",
+  "GetNeighborhoodInfo",
+  "GetHousingNeighborhoodInfo",
+}
+
+local function housingIsHousingApiNamespace(ns)
+  local t = type(ns)
+  return ns ~= nil and (t == "table" or t == "userdata")
+end
+
+local function housingNamespaceLookup(ns, key)
+  if not housingIsHousingApiNamespace(ns) or key == nil then
+    return nil
+  end
+  local ok, v = pcall(function()
+    return ns[key]
+  end)
+  if not ok then
+    return nil
+  end
+  return v
+end
+
+local function housingIterNamespaceStringKeyFunctions(ns, callback)
+  if type(ns) == "table" then
+    for k, v in pairs(ns) do
+      if type(k) == "string" and type(v) == "function" then
+        callback(k, v)
+      end
+    end
+    return
+  end
+  if type(ns) == "userdata" then
+    local mt = getmetatable(ns)
+    if type(mt) == "table" and type(mt.__index) == "table" then
+      for k, v in pairs(mt.__index) do
+        if type(k) == "string" and type(v) == "function" then
+          callback(k, v)
+        end
+      end
+    end
+  end
+end
+
+-- C_Housing neighborhood slice id (short hex or Housing-… token).
+local function housingCurrentNeighborhoodGuidRaw()
+  local ch = rawget(_G, "C_Housing") or _G.C_Housing
+  if not housingIsHousingApiNamespace(ch) then
+    return nil
+  end
+  for _, name in ipairs({ "GetCurrentNeighborhoodGUID", "GetCurrentNeighborhoodGuid" }) do
+    local fn = housingNamespaceLookup(ch, name)
+    if type(fn) == "function" then
+      local ok, g = pcall(fn)
+      if ok and g ~= nil then
+        local gs = type(g) == "string" and g or tostring(g)
+        local t = housingTrimNonEmpty(gs)
+        if t then
+          return t
+        end
+      end
+    end
+  end
+  return nil
+end
+
+local function housingCollectC_HousingNamespaces()
+  local seen = {}
+  local out = {}
+  local function add(ns)
+    if housingIsHousingApiNamespace(ns) and not seen[ns] then
+      seen[ns] = true
+      out[#out + 1] = ns
+    end
+  end
+  for _, key in ipairs(HOUSING_NAMESPACE_KEYS) do
+    add(rawget(_G, key))
+  end
+  for gkey, ns in pairs(_G) do
+    if type(gkey) == "string" and housingIsHousingApiNamespace(ns) then
+      if gkey:sub(1, 9) == "C_Housing" then
+        add(ns)
+      elseif gkey:sub(1, 2) == "C_" and gkey:find("Housing", 1, true) then
+        add(ns)
+      elseif gkey:match("^C_Neighborhood") then
+        add(ns)
+      end
+    end
+  end
+  return out
+end
+
+local function housingBuildSliceInfoGetterList()
+  local seenFn = {}
+  local list = {}
+  local function push(fn, modes, label)
+    if type(fn) ~= "function" or seenFn[fn] then
+      return
+    end
+    seenFn[fn] = true
+    list[#list + 1] = { fn = fn, modes = modes, label = label }
+  end
+  local namespaces = housingCollectC_HousingNamespaces()
+  for _, ns in ipairs(namespaces) do
+    for _, name in ipairs(HOUSING_INFO_NO_ARG_NAMES) do
+      local fn = housingNamespaceLookup(ns, name)
+      if type(fn) == "function" then
+        -- GetCurrentHouseInfo often needs the neighborhood GUID and/or returns multiple values (table not first).
+        if name == "GetCurrentHouseInfo" then
+          push(fn, { "noarg", "guid", "booltrue", "boolfalse" }, "GetCurrentHouseInfo")
+        else
+          push(fn, { "noarg" }, name .. "()")
+        end
+      end
+    end
+  end
+  for _, ns in ipairs(namespaces) do
+    housingIterNamespaceStringKeyFunctions(ns, function(k, fn)
+      local kl = k:lower()
+      if kl:match("^get") and kl:find("neighborhood", 1, true) and kl:find("info", 1, true) then
+        if not kl:find("cornerstone", 1, true) and not kl:find("roster", 1, true) and not kl:find("mapdata", 1, true) then
+          push(fn, { "guid", "noarg" }, k .. "(guid|)")
+        end
+      end
+    end)
+  end
+  for _, spec in ipairs(HOUSING_INFO_EXTRA_GETTERS) do
+    for _, gkey in ipairs({ "C_HousingNeighborhood", "C_Housing" }) do
+      local ns = rawget(_G, gkey)
+      local fn = housingNamespaceLookup(ns, spec.name)
+      if type(fn) == "function" then
+        push(fn, spec.modes, gkey .. "." .. spec.name)
+        break
+      end
+    end
+  end
+  return list
+end
+
+local function housingEnsureSliceInfoGetterList()
+  if housingSliceInfoGetterList ~= nil and #housingSliceInfoGetterList > 0 then
+    return housingSliceInfoGetterList
+  end
+  local now = (GetTime and GetTime()) or 0
+  if housingSliceInfoGetterList ~= nil and #housingSliceInfoGetterList == 0 and now < housingSliceInfoGetterCooldownUntil then
+    return housingSliceInfoGetterList
+  end
+  housingSliceInfoGetterList = housingBuildSliceInfoGetterList()
+  if #housingSliceInfoGetterList == 0 then
+    housingSliceInfoGetterCooldownUntil = now + 3
+  end
+  return housingSliceInfoGetterList
+end
+
+-- Blizzard often wants the short hex tail (e.g. B68) as well as the full Housing-… token.
+local function housingExpandGuidCallVariants(guid)
+  local alts = {}
+  local seen = {}
+  local function add(s)
+    if type(s) ~= "string" then
+      return
+    end
+    s = housingTrimNonEmpty(s)
+    if not s or seen[s] then
+      return
+    end
+    seen[s] = true
+    alts[#alts + 1] = s
+  end
+  add(guid)
+  if type(guid) == "string" then
+    local tail = guid:match("-([%x]+)$")
+    if tail then
+      add(tail)
+    end
+    if guid:match("^%x+$") and not guid:match("^Housing%-") then
+      add(("Housing-%s"):format(guid))
+    end
+  end
+  return alts
+end
+
+-- Trailing hex token from Housing-…-B68 style neighborhood GUIDs (differs per subdivision when API has no index).
+local function housingNeighborhoodGuidTailHex(guid)
+  if type(guid) ~= "string" then
+    return nil
+  end
+  return guid:match("-([%x]+)$")
+end
+
+local function housingFirstStructuredReturn(ok, ...)
+  if not ok then
+    return nil
+  end
+  local n = select("#", ...)
+  for i = 1, n do
+    local v = select(i, ...)
+    local tv = type(v)
+    if tv == "table" or tv == "userdata" then
+      return v
+    end
+  end
+  return nil
+end
+
+local function housingCallSliceInfoGetter(entry, guid)
+  local fn = entry.fn
+  local modes = entry.modes
+  local alts = housingExpandGuidCallVariants(guid)
+  for _, mode in ipairs(modes) do
+    if mode == "guid" then
+      for _, g in ipairs(alts) do
+        local t = housingFirstStructuredReturn(pcall(fn, g))
+        if t then
+          return t
+        end
+      end
+    elseif mode == "noarg" then
+      local t = housingFirstStructuredReturn(pcall(fn))
+      if t then
+        return t
+      end
+    elseif mode == "booltrue" then
+      local t = housingFirstStructuredReturn(pcall(fn, true))
+      if t then
+        return t
+      end
+    elseif mode == "boolfalse" then
+      local t = housingFirstStructuredReturn(pcall(fn, false))
+      if t then
+        return t
+      end
+    end
+  end
+  if entry.label == "GetCurrentHouseInfo" then
+    local tries = {
+      function()
+        return pcall(fn, guid, true)
+      end,
+      function()
+        return pcall(fn, true, guid)
+      end,
+      function()
+        return pcall(fn, guid, false)
+      end,
+      function()
+        return pcall(fn, false, guid)
+      end,
+      function()
+        return pcall(fn, 0)
+      end,
+      function()
+        return pcall(fn, 1)
+      end,
+    }
+    for _, try in ipairs(tries) do
+      local t = housingFirstStructuredReturn(try())
+      if t then
+        return t
+      end
+    end
+  end
+  return nil
+end
+
+local HOUSING_SUBDIVISION_INDEX_KEYS = {
+  "subdivisionIndex",
+  "SubdivisionIndex",
+  "subdivisionID",
+  "SubdivisionID",
+  "subdivision",
+  "Subdivision",
+  "neighborhoodSubdivisionIndex",
+  "NeighborhoodSubdivisionIndex",
+  "subdivisionLayerIndex",
+  "SubdivisionLayerIndex",
+  "layerIndex",
+  "LayerIndex",
+}
+
+local HOUSING_SUBDIVISION_NESTED_TABLE_KEYS = {
+  "neighborhood",
+  "Neighborhood",
+  "neighborhoodInfo",
+  "NeighborhoodInfo",
+  "houseInfo",
+  "HouseInfo",
+  "currentHouse",
+  "CurrentHouse",
+  "housingInfo",
+  "HousingInfo",
+}
+
+local function housingFieldLookup(obj, key)
+  if obj == nil or key == nil then
+    return nil
+  end
+  local ok, v = pcall(function()
+    return obj[key]
+  end)
+  if not ok then
+    return nil
+  end
+  return v
+end
+
+local function housingSubdivisionIndexFromTableShallow(t)
+  if type(t) ~= "table" and type(t) ~= "userdata" then
+    return nil
+  end
+  for _, key in ipairs(HOUSING_SUBDIVISION_INDEX_KEYS) do
+    local idx = housingFieldLookup(t, key)
+    if type(idx) == "number" then
+      return idx
+    end
+    if type(idx) == "string" then
+      local n = tonumber(idx)
+      if n then
+        return n
+      end
+    end
+  end
+  return nil
+end
+
+local function housingSubdivisionIndexFromInfo(tbl)
+  if type(tbl) ~= "table" and type(tbl) ~= "userdata" then
+    return nil
+  end
+  local n = housingSubdivisionIndexFromTableShallow(tbl)
+  if n ~= nil then
+    return n
+  end
+  for _, nk in ipairs(HOUSING_SUBDIVISION_NESTED_TABLE_KEYS) do
+    local sub = housingFieldLookup(tbl, nk)
+    n = housingSubdivisionIndexFromTableShallow(sub)
+    if n ~= nil then
+      return n
+    end
+  end
+  if type(tbl) == "table" then
+    for _, v in pairs(tbl) do
+      if type(v) == "table" or type(v) == "userdata" then
+        n = housingSubdivisionIndexFromTableShallow(v)
+        if n ~= nil then
+          return n
+        end
+      end
+    end
+  end
+  return nil
+end
+
+local function housingRequestCurrentHouseInfo()
+  local ch = rawget(_G, "C_Housing") or _G.C_Housing
+  local fn = housingNamespaceLookup(ch, "RequestCurrentHouseInfo")
+  if type(fn) == "function" then
+    pcall(fn)
+  end
+end
+
+-- Returns first neighborhood info table we can obtain for this slice (API names differ by build).
+local function housingGetNeighborhoodInfoTableForGuid(guid)
+  local fallback = nil
+  local list = housingEnsureSliceInfoGetterList()
+  for _, entry in ipairs(list) do
+    local t = housingCallSliceInfoGetter(entry, guid)
+    local tv = type(t)
+    if tv == "table" or tv == "userdata" then
+      if housingSubdivisionIndexFromInfo(t) ~= nil then
+        return t
+      end
+      if not fallback then
+        fallback = t
+      end
+    end
+  end
+  return fallback
+end
+
+local function housingApplyNeighborhoodInfoFromGuid()
+  local guid = housingCurrentNeighborhoodGuidRaw()
+  if not guid then
+    housingClearNeighborhoodInfoCache()
+    return
+  end
+  local info = housingGetNeighborhoodInfoTableForGuid(guid)
+  if type(info) ~= "table" and type(info) ~= "userdata" then
+    housingLastInfoGuid = guid
+    housingLastSubdivisionIndex = nil
+    return
+  end
+  local n = housingSubdivisionIndexFromInfo(info)
+  housingLastInfoGuid = guid
+  housingLastSubdivisionIndex = n
+end
+
+local housingInfoEventFrame = nil
+-- Events that refresh C_Housing neighborhood slice metadata (only names the client accepts may be registered).
+local housingCurrentInfoEvents = {}
+
+local HOUSING_CURRENT_INFO_EVENT_CANDIDATES = {
+  "CURRENT_HOUSE_INFO_RECEIVED",
+  "NEIGHBORHOOD_CURRENT_HOUSE_INFO_RECEIVED",
+  "HOUSING_CURRENT_HOUSE_INFO_RECEIVED",
+}
+
+local function housingTryRegisterEvent(frame, eventName)
+  local ok = pcall(function()
+    frame:RegisterEvent(eventName)
+  end)
+  return ok
+end
+
+local function housingInitNeighborhoodInfoListener()
+  if housingInfoEventFrame then
+    return
+  end
+  housingInfoEventFrame = CreateFrame("Frame")
+  wipe(housingCurrentInfoEvents)
+  for _, ev in ipairs(HOUSING_CURRENT_INFO_EVENT_CANDIDATES) do
+    if housingTryRegisterEvent(housingInfoEventFrame, ev) then
+      housingCurrentInfoEvents[ev] = true
+    end
+  end
+  housingInfoEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+  housingInfoEventFrame:SetScript("OnEvent", function(_, event)
+    if event == "PLAYER_ENTERING_WORLD" then
+      housingClearSliceInfoGetterDiscovery()
+      housingRequestCurrentHouseInfo()
+    elseif housingCurrentInfoEvents[event] then
+      housingApplyNeighborhoodInfoFromGuid()
+    end
+  end)
+  housingRequestCurrentHouseInfo()
+end
+
 -- Returns: list, detailTag, detailText (detail for status line when list empty or error)
 local function fetchVisitableHouses()
+  housingInitNeighborhoodInfoListener()
+  housingRequestCurrentHouseInfo()
+  housingApplyNeighborhoodInfoFromGuid()
   if not housingResolve() then
     if housingNamespacePresent() then
       return {}, "list_fn_missing",
@@ -1102,11 +1601,175 @@ local function housingGetPinCoordsForEntry(entry, rowIndex)
   return mapID, x, y
 end
 
+-- Human-readable neighborhood name when standing in / viewing housing (patch-dependent).
+local function housingGetNeighborhoodDisplayName()
+  local ns = rawget(_G, "C_HousingNeighborhood")
+  if type(ns) ~= "table" then
+    return nil
+  end
+  local infoFn = ns.GetCornerstoneNeighborhoodInfo
+  if type(infoFn) == "function" then
+    local ok, t = pcall(infoFn)
+    if ok and type(t) == "table" then
+      local n = housingTrimNonEmpty(t.neighborhoodName)
+      if n then
+        return n
+      end
+    end
+  end
+  local nameFn = ns.GetNeighborhoodName
+  if type(nameFn) == "function" then
+    local ok, n = pcall(nameFn)
+    if ok and type(n) == "string" then
+      n = housingTrimNonEmpty(n)
+      if n then
+        return n
+      end
+    end
+  end
+  return nil
+end
+
+local HOUSING_SUBDIVISION_TRY_METHODS = {
+  "GetCurrentSubdivisionName",
+  "GetNeighborhoodSubdivisionName",
+  "GetSubdivisionName",
+  "GetPlayerNeighborhoodSubdivisionName",
+}
+
+-- Only explicit subdivision fields — avoid generic keys (name/label) that can mirror zone or neighborhood type.
+local HOUSING_SUBDIVISION_TABLE_STRING_KEYS = {
+  "subdivisionName",
+  "SubdivisionName",
+  "neighborhoodSubdivisionName",
+  "subdivision",
+  "Subdivision",
+}
+
+local function housingFirstTrimmedStringFromTable(t, keyList)
+  if type(t) ~= "table" then
+    return nil
+  end
+  for _, field in ipairs(keyList) do
+    local v = t[field]
+    if type(v) == "string" then
+      local n = housingTrimNonEmpty(v)
+      if n then
+        return n
+      end
+    end
+  end
+  return nil
+end
+
+-- Region / faction hub names (not per-neighborhood subdivisions); APIs sometimes surface these as labels.
+local HOUSING_SUBDIVISION_REGION_BLOCK = {
+  ["founder's point"] = true,
+  ["razorwind shores"] = true,
+}
+
+-- Reject strings that duplicate the instance neighborhood name or known zone-level region labels.
+local function housingSubdivisionCandidateUsable(s)
+  if type(s) ~= "string" then
+    return false
+  end
+  s = housingTrimNonEmpty(s)
+  if not s then
+    return false
+  end
+  local hood = housingGetNeighborhoodDisplayName()
+  if hood and string.lower(s) == string.lower(hood) then
+    return false
+  end
+  if HOUSING_SUBDIVISION_REGION_BLOCK[string.lower(s)] then
+    return false
+  end
+  return true
+end
+
+local function housingTrySubdivisionFromNamespace(ns)
+  if type(ns) ~= "table" then
+    return nil
+  end
+  for _, name in ipairs(HOUSING_SUBDIVISION_TRY_METHODS) do
+    local fn = ns[name]
+    if type(fn) == "function" then
+      local ok, a = pcall(fn)
+      if ok and type(a) == "string" then
+        local n = housingTrimNonEmpty(a)
+        if n and housingSubdivisionCandidateUsable(n) then
+          return n
+        end
+      elseif ok and type(a) == "table" then
+        local s = housingFirstTrimmedStringFromTable(a, HOUSING_SUBDIVISION_TABLE_STRING_KEYS)
+        if s and housingSubdivisionCandidateUsable(s) then
+          return s
+        end
+      end
+    end
+  end
+  return nil
+end
+
+-- Stable slice id within a neighborhood instance (changes between subdivision portals / layers).
+local function housingGetCurrentNeighborhoodGuid()
+  return housingCurrentNeighborhoodGuidRaw()
+end
+
+-- Human subdivision label: housing API if present, else optional per-slice label from NHSV (see Options).
+local function housingGetSubdivisionDisplayName()
+  local cur = housingCurrentNeighborhoodGuidRaw()
+  if type(housingLastSubdivisionIndex) == "number" and cur and housingLastInfoGuid and cur == housingLastInfoGuid then
+    return ("Subdivision %d"):format(housingLastSubdivisionIndex)
+  end
+  local ns = rawget(_G, "C_HousingNeighborhood")
+  local s = housingTrySubdivisionFromNamespace(ns)
+  if s then
+    return s
+  end
+  if type(ns) == "table" and type(ns.GetCornerstoneNeighborhoodInfo) == "function" then
+    local ok, t = pcall(ns.GetCornerstoneNeighborhoodInfo)
+    if ok and type(t) == "table" then
+      s = housingFirstTrimmedStringFromTable(t, HOUSING_SUBDIVISION_TABLE_STRING_KEYS)
+      if s and housingSubdivisionCandidateUsable(s) then
+        return s
+      end
+    end
+  end
+  local ch = rawget(_G, "C_Housing")
+  s = housingTrySubdivisionFromNamespace(ch)
+  if s then
+    return s
+  end
+  local guid = housingGetCurrentNeighborhoodGuid()
+  if guid and NeighborhoodHideSeek.EnsureSavedVars then
+    NeighborhoodHideSeek.EnsureSavedVars()
+    if type(NHSV) == "table" and type(NHSV.neighborhoodSliceLabels) == "table" then
+      local lbl = NHSV.neighborhoodSliceLabels[guid]
+      if type(lbl) == "string" then
+        lbl = housingTrimNonEmpty(lbl)
+        if lbl and housingSubdivisionCandidateUsable(lbl) then
+          return lbl
+        end
+      end
+    end
+  end
+  local tail = housingNeighborhoodGuidTailHex(guid)
+  if tail then
+    return ("Slice %s"):format(tail)
+  end
+  return nil
+end
+
+NeighborhoodHideSeek.GetNeighborhoodDisplayName = housingGetNeighborhoodDisplayName
+NeighborhoodHideSeek.GetSubdivisionDisplayName = housingGetSubdivisionDisplayName
+NeighborhoodHideSeek.GetNeighborhoodSubdivisionPersistenceId = housingGetCurrentNeighborhoodGuid
 NeighborhoodHideSeek.NeighborIDFromEntry = neighborIDFromEntry
 NeighborhoodHideSeek.GetPinCoordsForHouseEntry = housingGetPinCoordsForEntry
 NeighborhoodHideSeek.PlotSortKeyFromSavedLabelOrKey = nhsPlotSortKeyFromSavedLabelOrKey
 NeighborhoodHideSeek.SortHouseListInPlace = sortHouseListInPlace
 NeighborhoodHideSeek.LabelFromEntry = labelFromEntry
+NeighborhoodHideSeek.EntryHasOwnerDisplay = housingEntryHasOwnerDisplay
 
 local function tryWaypointForEntry(entry, rowIndex)
   local mapID, x, y = housingGetPinCoordsForEntry(entry, rowIndex)
@@ -1138,4 +1801,7 @@ NeighborhoodHideSeek.HousingApi = {
   Available = housingAvailable,
   TryWaypointForEntry = tryWaypointForEntry,
   PrintVisitDiagnostics = housingPrintVisitDiagnostics,
+  RequestCurrentNeighborhoodHouseInfo = housingRequestCurrentHouseInfo,
 }
+
+housingInitNeighborhoodInfoListener()

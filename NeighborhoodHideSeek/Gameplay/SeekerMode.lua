@@ -10,16 +10,21 @@ local State = NHS.State
 
 --[[
   Nameplate-related CVars snapshotted in seeker mode (Names / Nameplates options).
-  Midnight (12.x) removed nameplateShowFriends; friendly *player* plates are driven
-  largely by nameplatePlayerMaxDistance — set to 0 in seeker mode when present.
-  We still SetCVar nameplateShowFriends for older clients (pcall, no GetCVar guard).
+  Midnight (12.x): friendly player nameplates use nameplateShowFriendlyPlayers (and
+  nameplateShowFriendlyPlayerMinions); nameplateShowFriends is legacy. Friendly NPC
+  plates use nameplateShowFriendlyNpcs (older clients used nameplateShowFriendlyNPCs).
+  Floating friendly player names: UnitNameFriendlyPlayerName (and UnitNameFriendlyMinionName).
+  We still Set legacy keys for older clients (pcall in hideAllNameplates).
 ]]
 local NAMEPLATE_CVARS = {
   "nameplateShowAll",
   "nameplateShowEnemies",
   "nameplateShowFriends",
+  "nameplateShowFriendlyPlayers",
+  "nameplateShowFriendlyPlayerMinions",
   "nameplateShowSelf",
   "nameplateShowFriendlyNPCs",
+  "nameplateShowFriendlyNpcs",
   "nameplateShowEnemyMinus",
   "nameplateShowEnemyMinions",
   "nameplateShowFriendlyMinions",
@@ -39,6 +44,8 @@ local NAMEPLATE_CVARS = {
   "NameplatePersonalShowInCombat",
   "NameplatePersonalShowWithTarget",
   "UnitNameFriendlyPlayerName",
+  "UnitNameFriendlyMinionName",
+  "nameplateSimplifiedTypes",
 }
 
 local function snapshotNameplates()

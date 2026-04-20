@@ -48,6 +48,196 @@ end
 local S = {}
 NHS.SavedHouses = S
 
+-- Disambiguate same plot/GUID across neighborhoods (and subdivisions) in SavedVariables.
+local NHS_PERSIST_KEY_SEP = "\1"
+-- Inside the persistence tail (after first SOH): neighborhood .. STX .. subdivision when both exist.
+local NHS_TAIL_PAIR_SEP = "\2"
+
+local function persistenceTailFromHoodAndSub(neighborhoodName, subdivisionName)
+  local h = type(neighborhoodName) == "string" and neighborhoodName:match("^%s*(.-)%s*$") or ""
+  local s = type(subdivisionName) == "string" and subdivisionName:match("^%s*(.-)%s*$") or ""
+  if h ~= "" and s ~= "" then
+    return h .. NHS_TAIL_PAIR_SEP .. s
+  end
+  if h ~= "" then
+    return h
+  end
+  if s ~= "" then
+    return s
+  end
+  return ""
+end
+
+local function persistenceTailHoodOnly(tail)
+  if type(tail) ~= "string" then
+    return ""
+  end
+  local pos = tail:find(NHS_TAIL_PAIR_SEP, 1, true)
+  if pos and pos > 1 then
+    return tail:sub(1, pos - 1)
+  end
+  return tail
+end
+
+function S.PersistenceKeyFromStableNeighborhoodSubdivision(stableKey, neighborhoodName, subdivisionName)
+  if type(stableKey) ~= "string" or stableKey == "" then
+    return nil
+  end
+  local tail = persistenceTailFromHoodAndSub(neighborhoodName, subdivisionName)
+  if tail == "" then
+    return stableKey
+  end
+  return stableKey .. NHS_PERSIST_KEY_SEP .. tail
+end
+
+function S.PersistenceKeyFromStableKeyAndNeighborhood(stableKey, neighborhoodName)
+  return S.PersistenceKeyFromStableNeighborhoodSubdivision(stableKey, neighborhoodName, nil)
+end
+
+function S.BaseStableKeyFromPersistenceKey(persistenceKey)
+  if type(persistenceKey) ~= "string" then
+    return persistenceKey
+  end
+  local pos = persistenceKey:find(NHS_PERSIST_KEY_SEP, 1, true)
+  if pos and pos > 1 then
+    return persistenceKey:sub(1, pos - 1)
+  end
+  return persistenceKey
+end
+
+local function trimmedNeighborhoodName()
+  local hood = NHS.GetNeighborhoodDisplayName and NHS.GetNeighborhoodDisplayName() or nil
+  if type(hood) ~= "string" then
+    return nil
+  end
+  hood = hood:match("^%s*(.-)%s*$") or ""
+  if hood == "" then
+    return nil
+  end
+  return hood
+end
+
+-- Full C_Housing.GetCurrentNeighborhoodGUID() value for SavedVariables keys (distinct per subdivision slice).
+local function trimmedSubdivisionPersistenceId()
+  local f = NHS.GetNeighborhoodSubdivisionPersistenceId
+  if not f then
+    return nil
+  end
+  local id = f()
+  if type(id) ~= "string" then
+    return nil
+  end
+  id = id:match("^%s*(.-)%s*$") or ""
+  if id == "" then
+    return nil
+  end
+  return id
+end
+
+-- Short / API label for chat and houseSubdivisionNames (may differ from persistence id).
+local function trimmedSubdivisionDisplayLabel()
+  local sub = NHS.GetSubdivisionDisplayName and NHS.GetSubdivisionDisplayName() or nil
+  if type(sub) ~= "string" then
+    return nil
+  end
+  sub = sub:match("^%s*(.-)%s*$") or ""
+  if sub == "" then
+    return nil
+  end
+  return sub
+end
+
+local function persistenceKeysForLookup(stable)
+  local keys = {}
+  local hood = trimmedNeighborhoodName()
+  local sub = trimmedSubdivisionPersistenceId()
+  local tailFull = persistenceTailFromHoodAndSub(hood, sub)
+  if tailFull ~= "" then
+    keys[#keys + 1] = stable .. NHS_PERSIST_KEY_SEP .. tailFull
+  end
+  local tailHoodOnly = persistenceTailFromHoodAndSub(hood, nil)
+  if tailHoodOnly ~= "" and tailHoodOnly ~= tailFull then
+    keys[#keys + 1] = stable .. NHS_PERSIST_KEY_SEP .. tailHoodOnly
+  end
+  keys[#keys + 1] = stable
+  return keys
+end
+
+local function normalizeNeighborhoodDedup(s)
+  if type(s) ~= "string" then
+    return ""
+  end
+  local t = s:match("^%s*(.-)%s*$") or ""
+  return string.lower(t)
+end
+
+-- Neighborhood string for a SavedVariables key (suffix after SOH, else stored name for legacy keys).
+local function neighborhoodLabelFromSavedKey(k)
+  if type(k) ~= "string" then
+    return ""
+  end
+  local pos = k:find(NHS_PERSIST_KEY_SEP, 1, true)
+  if pos and pos < #k then
+    return k:sub(pos + 1)
+  end
+  ensureSaved()
+  local t = type(NHSV.houseNeighborhoodNames) == "table" and NHSV.houseNeighborhoodNames[k]
+  if type(t) == "string" then
+    return t
+  end
+  return ""
+end
+
+local function nhsRemoveSavedHouseKey(k)
+  NHSV.houseSizes[k] = nil
+  NHSV.houseLabels[k] = nil
+  NHSV.housePinCoords[k] = nil
+  if type(NHSV.houseNeighborhoodNames) == "table" then
+    NHSV.houseNeighborhoodNames[k] = nil
+  end
+  if type(NHSV.houseSubdivisionNames) == "table" then
+    NHSV.houseSubdivisionNames[k] = nil
+  end
+end
+
+-- Before writing targetKey: drop legacy base-only row and same-slot rows superseded by the new tail
+-- (neighborhood ± subdivision), without removing a different subdivision under the same neighborhood name.
+local function wipePersistentKeysSupersededBySave(stable, tailWant, targetKey)
+  ensureSaved()
+  if not stable or not targetKey then
+    return
+  end
+  local tw = tailWant or ""
+  local wantFull = normalizeNeighborhoodDedup(tw)
+  if wantFull == "" then
+    return
+  end
+  local wantHasSub = tw:find(NHS_TAIL_PAIR_SEP, 1, true)
+  local wantHoodNorm = normalizeNeighborhoodDedup(persistenceTailHoodOnly(tw))
+  local toWipe = {}
+  for k in pairs(NHSV.houseSizes) do
+    if k ~= targetKey and S.BaseStableKeyFromPersistenceKey(k) == stable then
+      local kTail = neighborhoodLabelFromSavedKey(k)
+      local kNorm = normalizeNeighborhoodDedup(kTail)
+      local kHasSub = kTail:find(NHS_TAIL_PAIR_SEP, 1, true)
+      local wipe = false
+      if k == stable then
+        wipe = true
+      elseif kNorm == wantFull then
+        wipe = true
+      elseif wantHasSub and not kHasSub and wantHoodNorm ~= "" and kNorm == wantHoodNorm then
+        wipe = true
+      end
+      if wipe then
+        toWipe[#toWipe + 1] = k
+      end
+    end
+  end
+  for _, k in ipairs(toWipe) do
+    nhsRemoveSavedHouseKey(k)
+  end
+end
+
 function S.StableKeyFromEntry(entry)
   if type(entry) == "number" then
     return "n:" .. tostring(entry)
@@ -92,32 +282,57 @@ end
 
 function S.GetSavedPresetIndexForEntry(entry)
   ensureSaved()
-  local key = S.StableKeyFromEntry(entry)
-  if not key then
+  local stable = S.StableKeyFromEntry(entry)
+  if not stable then
     return nil
   end
   local pr = presets()
-  local idx = tonumber(NHSV.houseSizes[key])
-  if not idx or idx < 1 or idx > #pr then
-    return nil
+  for _, key in ipairs(persistenceKeysForLookup(stable)) do
+    local idx = tonumber(NHSV.houseSizes[key])
+    if idx and idx >= 1 and idx <= #pr then
+      return idx
+    end
   end
-  return idx
+  return nil
 end
 
 function S.SetSavedPresetForEntry(entry, presetIdx, displayLabel, listRowIndex)
+  if not (NHS.EntryHasOwnerDisplay and NHS.EntryHasOwnerDisplay(entry)) then
+    return false
+  end
   presetIdx = tonumber(presetIdx)
   local pr = presets()
   if not presetIdx or presetIdx < 1 or presetIdx > #pr then
     return false
   end
-  local key = S.StableKeyFromEntry(entry)
-  if not key then
+  local stable = S.StableKeyFromEntry(entry)
+  if not stable then
     return false
   end
+  local hood = trimmedNeighborhoodName()
+  local subId = trimmedSubdivisionPersistenceId()
+  local tail = persistenceTailFromHoodAndSub(hood, subId)
+  local key = S.PersistenceKeyFromStableNeighborhoodSubdivision(stable, hood, subId)
   ensureSaved()
+  wipePersistentKeysSupersededBySave(stable, tail, key)
   NHSV.houseSizes[key] = presetIdx
   if type(displayLabel) == "string" and displayLabel ~= "" then
     NHSV.houseLabels[key] = displayLabel
+  end
+  if hood then
+    if type(NHSV.houseNeighborhoodNames) ~= "table" then
+      NHSV.houseNeighborhoodNames = {}
+    end
+    NHSV.houseNeighborhoodNames[key] = hood
+  end
+  local subLabel = trimmedSubdivisionDisplayLabel()
+  if type(NHSV.houseSubdivisionNames) ~= "table" then
+    NHSV.houseSubdivisionNames = {}
+  end
+  if subLabel then
+    NHSV.houseSubdivisionNames[key] = subLabel
+  else
+    NHSV.houseSubdivisionNames[key] = nil
   end
   local mapID, x, y = getPinCoords(entry, listRowIndex or 1)
   if mapID and mapID ~= 0 and x ~= nil and y ~= nil then
@@ -129,14 +344,22 @@ function S.SetSavedPresetForEntry(entry, presetIdx, displayLabel, listRowIndex)
 end
 
 function S.ClearSavedPresetForEntry(entry)
-  local key = S.StableKeyFromEntry(entry)
-  if not key then
+  local stable = S.StableKeyFromEntry(entry)
+  if not stable then
     return false
   end
   ensureSaved()
-  NHSV.houseSizes[key] = nil
-  NHSV.houseLabels[key] = nil
-  NHSV.housePinCoords[key] = nil
+  local key
+  for _, k in ipairs(persistenceKeysForLookup(stable)) do
+    if NHSV.houseSizes[k] ~= nil then
+      key = k
+      break
+    end
+  end
+  if not key then
+    return false
+  end
+  nhsRemoveSavedHouseKey(key)
   return true
 end
 
@@ -236,6 +459,61 @@ function S.PresetButtonsApplySavedHighlightIdx(hideBtns, searchBtns, idx)
   end
 end
 
+-- Extract Housing-… slice id from persistence key tail (after first SOH; optional STX before guid).
+local function housingGuidFromPersistenceKey(key)
+  if type(key) ~= "string" then
+    return nil
+  end
+  local p1 = string.char(1)
+  local i1 = key:find(p1, 1, true)
+  if not i1 or i1 >= #key then
+    return nil
+  end
+  local tail = key:sub(i1 + 1)
+  local p2 = string.char(2)
+  local lastPos = nil
+  local start = 1
+  while true do
+    local j = tail:find(p2, start, true)
+    if not j then
+      break
+    end
+    lastPos = j
+    start = j + 1
+  end
+  local g = lastPos and tail:sub(lastPos + 1) or tail
+  if type(g) == "string" and (g:match("^Housing%-") or g:match("^%x+$")) then
+    return g
+  end
+  return nil
+end
+
+local function sliceDisplayLabelForSavedKey(key)
+  local sub = type(NHSV.houseSubdivisionNames) == "table" and NHSV.houseSubdivisionNames[key]
+  if type(sub) == "string" then
+    sub = sub:match("^%s*(.-)%s*$") or ""
+    if sub ~= "" then
+      return sub
+    end
+  end
+  local gid = housingGuidFromPersistenceKey(key)
+  if gid and type(NHSV.neighborhoodSliceLabels) == "table" then
+    local lab = NHSV.neighborhoodSliceLabels[gid]
+    if type(lab) == "string" then
+      lab = lab:match("^%s*(.-)%s*$") or ""
+      if lab ~= "" then
+        return lab
+      end
+    end
+  end
+  return nil
+end
+
+function S.SliceDisplayLabelForSavedKey(key)
+  ensureSaved()
+  return sliceDisplayLabelForSavedKey(key)
+end
+
 local function gameplaySavedHousePoolEntries()
   ensureSaved()
   local pr = presets()
@@ -243,10 +521,22 @@ local function gameplaySavedHousePoolEntries()
   for key, idx in pairs(NHSV.houseSizes) do
     idx = tonumber(idx)
     if idx and idx >= 1 and idx <= #pr then
-      local label = NHSV.houseLabels[key] or key
-      local disp = ("%s [%s]"):format(label, pr[idx].label)
+      local baseLabel = NHSV.houseLabels[key] or key
+      local hood = type(NHSV.houseNeighborhoodNames) == "table" and NHSV.houseNeighborhoodNames[key]
+      if type(hood) ~= "string" or hood == "" then
+        hood = nil
+      end
+      local sub = sliceDisplayLabelForSavedKey(key)
+      local dispLabel = baseLabel
+      if hood then
+        dispLabel = ("%s — %s"):format(dispLabel, hood)
+      end
+      if sub then
+        dispLabel = ("%s — %s"):format(dispLabel, sub)
+      end
+      local disp = ("%s [%s]"):format(dispLabel, pr[idx].label)
       wrapped[#wrapped + 1] = {
-        k = plotSortKeyFromSavedLabelOrKey(label, key),
+        k = plotSortKeyFromSavedLabelOrKey(baseLabel, S.BaseStableKeyFromPersistenceKey(key)),
         ord = #wrapped + 1,
         row = {
           rotKey = key,
@@ -281,8 +571,10 @@ end
 
 local function gameplayCurrentHousePoolEntries(rows)
   local list = {}
-  for i, entry in ipairs(rows or {}) do
-    list[i] = entry
+  for _, entry in ipairs(rows or {}) do
+    if NHS.EntryHasOwnerDisplay and NHS.EntryHasOwnerDisplay(entry) then
+      list[#list + 1] = entry
+    end
   end
   sortHouseListInPlace(list)
   local pool = {}
@@ -301,21 +593,52 @@ local function gameplayCurrentHousePoolEntries(rows)
   return pool
 end
 
-function S.BuildGameplayHousePickPool(housesCache)
+local function gameplayGroupHousePoolEntries()
+  local B = NHS.BuildMainFrameBridge
+  local getRoster = B and B.nhsGetGroupRoster
+  if not getRoster then
+    return {}
+  end
+  local roster = getRoster()
+  local pool = {}
+  for _, m in ipairs(roster) do
+    pool[#pool + 1] = {
+      rotKey = "group:" .. tostring(m.key),
+      display = m.display,
+      liveEntry = nil,
+      liveIndex = nil,
+    }
+  end
+  return pool
+end
+
+--- @param listSource "neighborhood"|"saved"|"group"|nil
+function S.BuildGameplayHousePickPool(housesCache, listSource)
   ensureSaved()
-  if NHSV.selectHouseFromSavedList ~= false then
+  if listSource == "saved" then
     return gameplaySavedHousePoolEntries()
+  end
+  if listSource == "group" then
+    return gameplayGroupHousePoolEntries()
   end
   return gameplayCurrentHousePoolEntries(housesCache)
 end
 
-function S.GameplayRandomHouseEligible(housesCache)
-  local pool = S.BuildGameplayHousePickPool(housesCache)
+function S.GameplayRandomHouseEligible(housesCache, listSource)
+  local pool = S.BuildGameplayHousePickPool(housesCache, listSource)
   if #pool == 0 then
-    return nil,
-      (NHSV.selectHouseFromSavedList ~= false)
-          and "No saved houses with sizes. Add sizes in the house list, or disable “Select from saved house list” in Options."
-        or "No houses in the current list — open View house list and refresh, or visit the neighborhood."
+    local nhMsg
+    if listSource == "saved" then
+      nhMsg = "No saved houses with sizes. Add sizes in the house list (Saved Sizes), or pick another session list."
+    elseif listSource == "group" then
+      nhMsg = "No group members in the roster."
+    elseif housesCache and #housesCache > 0 then
+      nhMsg =
+        "No occupied plots in the neighborhood — empty lots are excluded. Refresh the house list or pick another session list."
+    else
+      nhMsg = "No houses in the neighborhood list — open View house list and refresh, or pick another session list."
+    end
+    return nil, nhMsg
   end
   local st = NHS.State
   local elig = {}
@@ -331,8 +654,8 @@ function S.GameplayRandomHouseEligible(housesCache)
   return elig, nil
 end
 
-function S.PickRandomGameplayHouse(housesCache)
-  local elig, err = S.GameplayRandomHouseEligible(housesCache)
+function S.PickRandomGameplayHouse(housesCache, listSource)
+  local elig, err = S.GameplayRandomHouseEligible(housesCache, listSource)
   if not elig then
     return nil, err
   end

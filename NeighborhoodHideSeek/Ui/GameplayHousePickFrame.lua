@@ -63,10 +63,27 @@ function NHS.CreateGameplayHousePickFrame(opts)
 
   local function refreshGameplayHousePickList()
     NHS.EnsureSavedVars()
-    local pool = NHS.SavedHouses.BuildGameplayHousePickPool(getHousesCache())
-    ghfpTitle:SetText(
-      NHSV.selectHouseFromSavedList ~= false and "Pick A House (Saved List)" or "Pick A House (Current List)"
-    )
+    local src = State.gameSessionHouseListSource
+    if not src then
+      ghfpTitle:SetText("Pick A House")
+      ghfpStatus:SetText("Choose Neighborhood, Saved list, or Group on the main window first.")
+      for i = 1, #gameplayPickRowBtns do
+        gameplayPickRowBtns[i]:Hide()
+      end
+      ghfpScrollChild:SetHeight(1)
+      ghfpScroll:SetVerticalScroll(0)
+      return
+    end
+    local pool = NHS.SavedHouses.BuildGameplayHousePickPool(getHousesCache(), src)
+    local title = "Pick A House"
+    if src == "saved" then
+      title = "Pick A House (Saved List)"
+    elseif src == "group" then
+      title = "Pick A House (Group)"
+    elseif src == "neighborhood" then
+      title = "Pick A House (Neighborhood)"
+    end
+    ghfpTitle:SetText(title)
     ghfpStatus:SetText(("Tap a row to choose (%d available)."):format(#pool))
     for i = 1, #gameplayPickRowBtns do
       gameplayPickRowBtns[i]:Hide()

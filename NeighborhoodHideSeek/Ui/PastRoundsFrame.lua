@@ -69,7 +69,7 @@ function NHS.CreatePastRoundsFrame()
       pastRoundsBody:Show()
       pastRoundsBody:ClearAllPoints()
       pastRoundsBody:SetPoint("TOPLEFT", pastRoundsScrollChild, "TOPLEFT", 0, 0)
-      pastRoundsBody:SetText("No completed rounds recorded this session yet.")
+      pastRoundsBody:SetText("No completed rounds in the list yet.")
       pastRoundsScrollChild:SetHeight(math.max(pastRoundsBody:GetStringHeight() + 8, 1))
       pastRoundsScroll:SetVerticalScroll(0)
       return

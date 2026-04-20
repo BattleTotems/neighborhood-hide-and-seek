@@ -9,6 +9,27 @@ local ADDON_NAME = "NeighborhoodHideSeek"
 NeighborhoodHideSeek = NeighborhoodHideSeek or {}
 NeighborhoodHideSeek.ADDON_NAME = ADDON_NAME
 
+do
+  local function readAddonVersionFromMetadata()
+    if C_AddOns and C_AddOns.GetAddOnMetadata then
+      local v = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")
+      if type(v) == "string" and strtrim(v) ~= "" then
+        return strtrim(v)
+      end
+    end
+    if type(GetAddOnMetadata) == "function" then
+      local v = GetAddOnMetadata(ADDON_NAME, "Version")
+      if type(v) == "string" and strtrim(v) ~= "" then
+        return strtrim(v)
+      end
+    end
+    return nil
+  end
+  local v = readAddonVersionFromMetadata()
+  NeighborhoodHideSeek.ADDON_VERSION = v
+  NeighborhoodHideSeek.ADDON_VERSION_DISPLAY = v and ("Version " .. v) or "Version —"
+end
+
 -- Ephemeral session state (not saved between sessions).
 local State = {
   seekerMode = false,
@@ -23,6 +44,8 @@ local State = {
   -- Leader-only game rounds (ephemeral; lost on reload)
   gameSessionActive = false,
   gamePhase = "none", -- none | pick_house | pick_seeker | round_active
+  -- Leader: once per session — neighborhood | saved | group (nil = not chosen yet).
+  gameSessionHouseListSource = nil,
   gameHouseCandidateKey = nil,
   gameHouseCandidateDisplay = nil,
   gameLockedHouseKey = nil,
@@ -45,9 +68,14 @@ local State = {
   remoteSeekerKey = nil,
   -- Follower: leader sent "[NHS] Game session started" (stays true until Game Over chat).
   remoteSessionActive = false,
+  -- Follower: mirrors leader gamePhase during setup (pick_house | pick_seeker) and round_active; none when idle.
+  remoteLeaderGamePhase = "none",
   -- Raid leader: we PromoteToAssistant'd the seeker for RAID_WARNING; demote on round/session end.
   nhsSeekerPromotedAsAssistantKey = nil,
-  -- Completed rounds this session (house+size / seeker / hidden / found); cleared on new session or game over.
+  -- Completed rounds for the current or last-ended session (house+size / seeker / hidden / found).
+  -- Cleared when a new game session starts. After a session ends, data stays in memory and is
+  -- written to NHSV.lastCompletedPastRounds for /reload; hydrate loads that when no active
+  -- NHSV.gameRounds session exists (see GameSession.lua).
   pastRounds = {},
 }
 
@@ -79,6 +107,36 @@ NeighborhoodHideSeek.GroupSyncBridge = {
   clearFound = clearFound,
 }
 
+-- Used with GROUP_ROSTER_UPDATE / PARTY_LEADER_CHANGED / PLAYER_ENTERING_WORLD so we only
+-- tear down group session + seeker mode when the local player actually leaves a group (not
+-- for solo-only game session / seeker preview, which never had wasInGroup = true).
+local wasInGroup = false
+
+local function nhsSyncGroupLeaveCleanup()
+  local NHS = NeighborhoodHideSeek
+  local inGroup = IsInGroup()
+
+  if wasInGroup and not inGroup then
+    local B = NHS.BuildMainFrameBridge
+    if B and B.nhsResetGameSession then
+      B.nhsResetGameSession()
+    else
+      if NHS.GroupSync and NHS.GroupSync.ClearRemoteRound and State.remoteRoundActive then
+        NHS.GroupSync.ClearRemoteRound()
+      end
+      if State.seekerMode and NHS.SetSeekerMode then
+        NHS.SetSeekerMode(false)
+      end
+    end
+  end
+
+  if not inGroup and State.remoteRoundActive and NHS.GroupSync and NHS.GroupSync.ClearRemoteRound then
+    NHS.GroupSync.ClearRemoteRound()
+  end
+
+  wasInGroup = inGroup
+end
+
 local loader = CreateFrame("Frame")
 local didPewImport
 loader:RegisterEvent("ADDON_LOADED")
@@ -92,16 +150,29 @@ loader:SetScript("OnEvent", function(_, event, name)
     NeighborhoodHideSeek.InitSessionHud()
     NeighborhoodHideSeek.HydrateGameSessionFromSaved()
     NeighborhoodHideSeek.PersistGameSessionToSaved()
+    if NeighborhoodHideSeek.GroupSync and NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded then
+      NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded()
+    end
     NeighborhoodHideSeek.InitMinimapButton()
+    C_Timer.After(0, function()
+      if NeighborhoodHideSeek.InitBlizzardSettingsAboutOnly then
+        NeighborhoodHideSeek.InitBlizzardSettingsAboutOnly()
+      end
+    end)
     print(
       "|cff88ccff[NHS]|r Loaded. Minimap stealth icon or |cffffffff/nhs|r toggles the window. |cffffffff/nhs visitinfo|r explains Visit attempts. |cffffffff/run NHS_Toggle()|r if slash fails."
     )
+    wasInGroup = IsInGroup()
   elseif event == "PLAYER_ENTERING_WORLD" then
     NeighborhoodHideSeek.EnsureSavedVars()
     NeighborhoodHideSeek.InitSessionHud()
     NeighborhoodHideSeek.InitMinimapButton()
     NeighborhoodHideSeek.HydrateGameSessionFromSaved()
     NeighborhoodHideSeek.PersistGameSessionToSaved()
+    if NeighborhoodHideSeek.GroupSync and NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded then
+      NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded()
+    end
+    nhsSyncGroupLeaveCleanup()
     if UI.RefreshGameRounds then
       UI.RefreshGameRounds()
     end
@@ -119,9 +190,7 @@ loader:SetScript("OnEvent", function(_, event, name)
       NeighborhoodHideSeek.OnPlayerLogoutSeekerCleanup()
     end
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PARTY_LEADER_CHANGED" then
-    if not IsInGroup() and State.remoteRoundActive then
-      NeighborhoodHideSeek.GroupSync.ClearRemoteRound()
-    end
+    nhsSyncGroupLeaveCleanup()
     if UI.RefreshAll then
       UI.RefreshAll()
     elseif UI.RefreshGameRounds then
