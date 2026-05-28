@@ -1,15 +1,18 @@
 ## Interface: 120001, 120000, 120005, 110207
 ## Title: Neighborhood Hide & Seek
 ## Notes: Guild housing hide-and-seek: seeker mode (nameplates), visitable houses, random pick, waypoint/share pin, found list.
-## Version: 1.0.1
+## Version: 1.2.0
 ## SavedVariables: NHSV
 
 Core.lua
 SavedVarsDefaults.lua
+AboutCopy.lua
 Ui/ScrollUtil.lua
 Gameplay/SeekerMode.lua
 Gameplay/RandomPickAnimation.lua
 Gameplay/GameSession.lua
+Gameplay/GameModes.lua
+Gameplay/PlayerRange.lua
 Gameplay/SessionHud.lua
 GroupSync.lua
 Gameplay/MarkFound.lua
@@ -25,6 +28,9 @@ SlashCommands.lua
 Ui/MinimapButton.lua
 Ui/Options.lua
 Ui/HowToPlay.lua
+Ui/SeekerModeDialog.lua
+Ui/GameModesInfo.lua
+Ui/BlizzardSettings.lua
 House/Housing.lua
 House/HousingPinShare.lua
 House/HouseList.lua

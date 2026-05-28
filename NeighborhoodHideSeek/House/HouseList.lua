@@ -14,7 +14,7 @@ function NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
   end
 
   local hf = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-  hf:SetSize(320, 360)
+  hf:SetSize(320, 392)
   hf:SetClampedToScreen(true)
   hf:SetMovable(true)
   hf:EnableMouse(true)
@@ -52,18 +52,51 @@ function NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
   refreshBtn:SetText("Refresh Houses")
   refreshBtn:SetPoint("TOPLEFT", 16, -62)
 
+  local updateSavedListBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
+  updateSavedListBtn:SetSize(288, 24)
+  updateSavedListBtn:SetText("Update Saved List")
+  updateSavedListBtn:SetPoint("TOPLEFT", refreshBtn, "BOTTOMLEFT", 0, -6)
+
   local pinBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
   pinBtn:SetSize(288, 26)
   pinBtn:SetText("House Pin")
-  pinBtn:SetPoint("TOPLEFT", refreshBtn, "BOTTOMLEFT", 0, -6)
+  pinBtn:SetPoint("TOPLEFT", updateSavedListBtn, "BOTTOMLEFT", 0, -6)
 
   local sharePinBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
   sharePinBtn:SetSize(288, 26)
   sharePinBtn:SetText("Share House Pin")
   sharePinBtn:SetPoint("TOPLEFT", pinBtn, "BOTTOMLEFT", 0, -6)
 
+  local subdivisionLabel = hf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  subdivisionLabel:SetPoint("TOPLEFT", sharePinBtn, "BOTTOMLEFT", 0, -8)
+  subdivisionLabel:SetText("Subdivision:")
+
+  local subdivisionEdit = CreateFrame("EditBox", nil, hf, "InputBoxTemplate")
+  subdivisionEdit:SetAutoFocus(false)
+  subdivisionEdit:SetSize(288, 22)
+  subdivisionEdit:SetPoint("TOPLEFT", subdivisionLabel, "BOTTOMLEFT", 0, -4)
+  subdivisionEdit:SetMaxLetters(64)
+  local function persistSubdivisionEdit()
+    ensureSaved()
+    local t = subdivisionEdit:GetText() or ""
+    t = t:match("^%s*(.-)%s*$") or ""
+    NHSV.savedHouseListSubdivision = t
+  end
+  subdivisionEdit:SetScript("OnEditFocusLost", persistSubdivisionEdit)
+  subdivisionEdit:SetScript("OnEnterPressed", function(self)
+    persistSubdivisionEdit()
+    self:ClearFocus()
+  end)
+  subdivisionEdit:SetScript("OnEscapePressed", function(self)
+    ensureSaved()
+    self:SetText(NHSV.savedHouseListSubdivision or "")
+    self:ClearFocus()
+  end)
+  ensureSaved()
+  subdivisionEdit:SetText(NHSV.savedHouseListSubdivision or "")
+
   local housingSelText = hf:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  housingSelText:SetPoint("TOPLEFT", sharePinBtn, "BOTTOMLEFT", 0, -8)
+  housingSelText:SetPoint("TOPLEFT", subdivisionEdit, "BOTTOMLEFT", 0, -8)
   housingSelText:SetWidth(288)
   housingSelText:SetJustifyH("LEFT")
   housingSelText:SetText("Selected House: (none)")
@@ -148,8 +181,10 @@ function NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
     frame = hf,
     listStatus = listStatus,
     refreshBtn = refreshBtn,
+    updateSavedListBtn = updateSavedListBtn,
     pinBtn = pinBtn,
     sharePinBtn = sharePinBtn,
+    subdivisionEdit = subdivisionEdit,
     housingSelText = housingSelText,
     housingSizeText = housingSizeText,
     houseSizePresetBtns = houseSizePresetBtns,

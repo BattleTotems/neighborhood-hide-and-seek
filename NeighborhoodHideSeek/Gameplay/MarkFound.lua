@@ -6,11 +6,13 @@
   Non-leader seeker: we update this client's found list first (foundSet / foundOrder), then
   BroadcastSeekerFound, then NHS.RefreshGameSessionUi (main frame if built, else session HUD only).
   Debug: /nhs debugfound — prints roster + keys when a step is blocked (debugFoundSync on).
+  Debug: /nhs debugsync  — traces DoCountdown return values, addon messages sent/received, and phase sync.
 ]]
 
 local NHS = NeighborhoodHideSeek
 local B = assert(NHS.SeekerModeBridge, "NeighborhoodHideSeek.SeekerModeBridge missing (load order).")
 local State = NHS.State
+local Phase = NHS.Phase
 
 -- opts.quiet: no prints on failure (used when auto-marking on target change).
 local function markTargetFound(opts)
@@ -22,7 +24,7 @@ local function markTargetFound(opts)
     end
     return
   end
-  if State.roundPhase ~= "searching" then
+  if State.phase ~= Phase.SEARCHING then
     if not quiet then
       print("|cffff8800[NHS]|r Mark found is only available during the searching phase.")
     end
@@ -30,7 +32,7 @@ local function markTargetFound(opts)
   end
   if not NHS.LocalPlayerIsDesignatedSeeker() then
     if NHS.debugFoundSync and NHS.DebugDumpFoundSyncState then
-      NHS.DebugDumpFoundSyncState("Mark found blocked: LocalPlayerIsDesignatedSeeker is false")
+      NHS.DebugDumpFoundSyncState("Mark found blocked: not designated seeker")
     end
     if not quiet then
       print("|cffff8800[NHS]|r Only the designated seeker can mark players found.")
@@ -72,12 +74,15 @@ local function markTargetFound(opts)
   if NHS.CanonicalGroupSortKey then
     key = NHS.CanonicalGroupSortKey(key)
   end
-  local dsk = NHS.GetDesignatedSeekerKey()
-  if dsk and NHS.GroupSortKeysEquivalent(key, dsk) then
-    if not quiet then
-      print("|cffff8800[NHS]|r You cannot mark the seeker as found.")
+  -- Prevent marking any of the designated seekers as found.
+  local dskKeys = NHS.GetDesignatedSeekerKeys and NHS.GetDesignatedSeekerKeys() or {}
+  for _, dsk in ipairs(dskKeys) do
+    if NHS.GroupSortKeysEquivalent(key, dsk) then
+      if not quiet then
+        print("|cffff8800[NHS]|r You cannot mark a seeker as found.")
+      end
+      return
     end
-    return
   end
   if State.foundSet[key] then
     return
@@ -85,8 +90,25 @@ local function markTargetFound(opts)
   local disp = UnitName("target") or Ambiguate(key, "short")
   State.foundSet[key] = true
   State.foundOrder[#State.foundOrder + 1] = key
+  -- Conquer mode: add the found player to the seeker list so they can broadcast finds.
+  if NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId() == "conquer" then
+    local alreadySeeker = false
+    for _, k in ipairs(dskKeys) do
+      if NHS.GroupSortKeysEquivalent(k, key) then alreadySeeker = true; break end
+    end
+    if not alreadySeeker then
+      if State.gameSessionActive then
+        State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = key
+      elseif State.remoteSessionActive then
+        State.remoteSeekerKeys[#State.remoteSeekerKeys + 1] = key
+      end
+    end
+  end
   print(("|cff88ff88[NHS]|r Marked found: %s"):format(disp))
   NHS.GroupSync.BroadcastSeekerFound(key)
+  if NHS.SyncHiddenRangePoll then
+    NHS.SyncHiddenRangePoll()
+  end
   if NHS.RefreshGameSessionUi then
     NHS.RefreshGameSessionUi()
   else
@@ -105,13 +127,10 @@ NHS.MarkTargetFound = markTargetFound
 local nhsSeekerAutoMarkFrame = CreateFrame("Frame")
 nhsSeekerAutoMarkFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 nhsSeekerAutoMarkFrame:SetScript("OnEvent", function()
-  if not State.seekerMode or State.roundPhase ~= "searching" then
+  if not State.seekerMode or State.phase ~= Phase.SEARCHING then
     return
   end
   if not NHS.LocalPlayerIsDesignatedSeeker() then
-    if NHS.debugFoundSync and NHS.DebugDumpFoundSyncState then
-      NHS.DebugDumpFoundSyncState("Auto mark (target change) blocked: not designated seeker")
-    end
     return
   end
   markTargetFound({ quiet = true })

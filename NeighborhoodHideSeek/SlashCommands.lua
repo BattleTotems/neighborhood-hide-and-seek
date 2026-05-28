@@ -25,6 +25,11 @@ local function nhsSlashHandler(msg, editBox)
     end
     return
   end
+  if cmd == "debugsync" then
+    NHS.debugSync = not NHS.debugSync
+    print(("[NHS] debugSync = %s (traces addon messages, DoCountdown return values, and phase sync)"):format(tostring(NHS.debugSync)))
+    return
+  end
   if cmd == "visitinfo" or cmd == "visitdebug" or cmd == "whyvisit" then
     pcall(function()
       NHS.HousingApi.PrintVisitDiagnostics(State.selectedEntry, State.selectedIndex)

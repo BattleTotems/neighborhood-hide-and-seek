@@ -8,6 +8,8 @@
 local NHS = NeighborhoodHideSeek
 local ADDON_NAME = assert(NHS.ADDON_NAME, "NeighborhoodHideSeek.ADDON_NAME missing.")
 local State = NHS.State
+local Phase = NHS.Phase
+local IsRoundPhase = NHS.IsRoundPhase
 local B = assert(NHS.SeekerModeBridge, "NeighborhoodHideSeek.SeekerModeBridge missing (load order).")
 
 local function ensureSavedVars()
@@ -26,44 +28,46 @@ end
 
 local ROUND_PRESETS = {
   { label = "Small", hideSec = 180, searchSec = 240 },
-  { label = "Medium", hideSec = 240, searchSec = 360 },
-  { label = "Large", hideSec = 300, searchSec = 480 },
-  { label = "Oversized", hideSec = 300, searchSec = 600 },
+  { label = "Medium", hideSec = 240, searchSec = 330 },
+  { label = "Large", hideSec = 300, searchSec = 420 }, 
+  { label = "Oversized", hideSec = 300, searchSec = 510 },
 }
 NHS.ROUND_PRESETS = ROUND_PRESETS
 
 local function nhsSessionHudIsActive()
-  return State.gameSessionActive or State.remoteSessionActive or State.remoteRoundActive
+  return State.gameSessionActive or State.remoteSessionActive
 end
 
 local function nhsSessionHudPhaseText()
-  if State.gameSessionActive and State.gamePhase == "pick_house" then
-    return "House selection"
+  local p = State.phase
+  if p == Phase.PICK_GAME_MODE then return "Game Mode Selection" end
+  if p == Phase.PICK_HOUSE then return "House Selection" end
+  if p == Phase.PICK_SEEKER then
+    return (NHS.IsHiderMode and NHS.IsHiderMode()) and "Hider Selection" or "Seeker Selection"
   end
-  if State.gameSessionActive and State.gamePhase == "pick_seeker" then
-    return "Seeker selection"
-  end
-  if State.gamePhase == "round_active" or State.remoteRoundActive then
-    if State.roundPhase == "pending" then
-      return "Preparing"
-    elseif State.roundPhase == "hiding" then
-      return "Hiding"
-    elseif State.roundPhase == "searching" then
-      return "Searching"
-    end
-    return "Round active"
-  end
-  if State.remoteSessionActive then
-    return "Waiting for round"
-  end
+  if p == Phase.PENDING then return "Preparing" end
+  if p == Phase.HIDING then return "Hiding" end
+  if p == Phase.SEARCHING then return "Searching" end
+  if p == Phase.REVEALING then return "Revealing" end
   return "—"
 end
 
+local function nhsSessionHudGameModeText()
+  if not nhsSessionHudIsActive() then
+    return nil
+  end
+  local id = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
+  if id and NHS.GameModeHudLabel then
+    return "Mode: " .. NHS.GameModeHudLabel(id)
+  end
+  return "Mode: —"
+end
+
 local function nhsSessionHudHouseText()
-  if State.gameSessionActive and State.gamePhase == "pick_house" and State.gameHouseCandidateDisplay then
+  if State.gameSessionActive and State.phase == Phase.PICK_HOUSE and State.gameHouseCandidateDisplay then
     return State.gameHouseCandidateDisplay
   end
-  if State.gameSessionActive and (State.gamePhase == "pick_seeker" or State.gamePhase == "round_active") then
+  if State.gameSessionActive and (State.phase == Phase.PICK_SEEKER or IsRoundPhase(State.phase)) then
     if State.gameLockedHouseDisplay then
       return State.gameLockedHouseDisplay
     end
@@ -75,37 +79,53 @@ local function nhsSessionHudHouseText()
 end
 
 local function nhsSessionHudSeekerText()
-  if State.remoteRoundActive and State.remoteSeekerKey then
-    return Ambiguate(State.remoteSeekerKey, "short")
+  if State.remoteSessionActive and IsRoundPhase(State.phase) and #State.remoteSeekerKeys > 0 then
+    local names = {}
+    for _, k in ipairs(State.remoteSeekerKeys) do
+      names[#names + 1] = Ambiguate(k, "short")
+    end
+    return table.concat(names, ", ")
   end
-  if State.gamePhase == "round_active" and State.gameLockedSeekerDisplay then
-    return State.gameLockedSeekerDisplay
+  if State.gameSessionActive and IsRoundPhase(State.phase) and #State.gameLockedSeekerKeys > 0 then
+    local names = {}
+    for _, k in ipairs(State.gameLockedSeekerKeys) do
+      names[#names + 1] = Ambiguate(k, "short")
+    end
+    return table.concat(names, ", ")
   end
-  if State.gamePhase == "pick_seeker" and State.gameCandidateDisplay then
-    return State.gameCandidateDisplay
+  if State.gameSessionActive and State.phase == Phase.PICK_SEEKER and #State.gameCandidateKeys > 0 then
+    local names = {}
+    for _, k in ipairs(State.gameCandidateKeys) do
+      names[#names + 1] = Ambiguate(k, "short")
+    end
+    return table.concat(names, ", ")
   end
   return "—"
 end
 
 local function nhsSessionHudSeekerKeyForLists()
-  if State.remoteRoundActive and State.remoteSeekerKey then
-    return State.remoteSeekerKey
+  -- Returns first seeker key only (fallback for single-seeker hidden-player list).
+  -- FormatHiddenPlayersLine (PlayerRange.lua) handles all seekers via nhsSeekerKeySetForHiddenLists.
+  if State.remoteSessionActive and IsRoundPhase(State.phase) and #State.remoteSeekerKeys > 0 then
+    return State.remoteSeekerKeys[1]
   end
-  if State.gamePhase == "round_active" and State.gameLockedSeekerKey then
-    return State.gameLockedSeekerKey
+  if State.gameSessionActive and IsRoundPhase(State.phase) and #State.gameLockedSeekerKeys > 0 then
+    return State.gameLockedSeekerKeys[1]
   end
-  if State.gamePhase == "pick_seeker" and State.gameCandidateKey then
-    return State.gameCandidateKey
+  if State.gameSessionActive and State.phase == Phase.PICK_SEEKER and #State.gameCandidateKeys > 0 then
+    return State.gameCandidateKeys[1]
   end
   return nil
 end
 
-local function nhsSessionHudCommaList(names, maxShown)
+local function nhsSessionHudCommaList(names, maxShown, sortAlphabetically)
   maxShown = maxShown or 14
   if #names == 0 then
     return "(none)"
   end
-  table.sort(names)
+  if sortAlphabetically ~= false then
+    table.sort(names)
+  end
   if #names <= maxShown then
     return table.concat(names, ", ")
   end
@@ -116,13 +136,23 @@ local function nhsSessionHudCommaList(names, maxShown)
   return table.concat(parts, ", ") .. (", +" .. tostring(#names - maxShown) .. " more")
 end
 
--- Everyone still hiding (not marked found), excluding the designated seeker once that key is known.
+-- Everyone still hiding (not marked found).
+-- Everyone still hiding (not marked found), excluding designated seekers.
 local function nhsSessionHudHiddenPlayerNames()
-  local sk = nhsSessionHudSeekerKeyForLists()
+  local roleSet = {}
+  if State.remoteSessionActive and IsRoundPhase(State.phase) then
+    for _, k in ipairs(State.remoteSeekerKeys) do roleSet[k] = true end
+  end
+  if State.gameSessionActive and IsRoundPhase(State.phase) then
+    for _, k in ipairs(State.gameLockedSeekerKeys) do roleSet[k] = true end
+  end
+  if State.gameSessionActive and State.phase == Phase.PICK_SEEKER then
+    for _, k in ipairs(State.gameCandidateKeys) do roleSet[k] = true end
+  end
   local roster = nhsGetGroupRoster()
   local names = {}
   for _, m in ipairs(roster) do
-    if (sk == nil or m.key ~= sk) and not State.foundSet[m.key] then
+    if not roleSet[m.key] and not State.foundSet[m.key] then
       names[#names + 1] = Ambiguate(m.key, "short")
     end
   end
@@ -131,12 +161,22 @@ local function nhsSessionHudHiddenPlayerNames()
 end
 
 local function nhsSessionHudHiddenFormatted()
+  if NHS.FormatHiddenPlayersLine then
+    return NHS.FormatHiddenPlayersLine()
+  end
   local names = nhsSessionHudHiddenPlayerNames()
   local n = #names
   if n == 0 then
     return "Hidden (0): —"
   end
   return ("Hidden (%d): %s"):format(n, nhsSessionHudCommaList(names))
+end
+
+local function nhsSessionHudClosestRangeText()
+  if NHS.FormatClosestHiddenRangeLine then
+    return NHS.FormatClosestHiddenRangeLine()
+  end
+  return nil
 end
 
 local function nhsSessionHudFoundFormatted()
@@ -148,8 +188,7 @@ local function nhsSessionHudFoundFormatted()
   if n == 0 then
     return "Found (0): —"
   end
-  table.sort(names)
-  return ("Found (%d): %s"):format(n, nhsSessionHudCommaList(names))
+  return ("Found (%d): %s"):format(n, nhsSessionHudCommaList(names, 14, false))
 end
 
 local function nhsSessionHudUpdate()
@@ -164,18 +203,49 @@ local function nhsSessionHudUpdate()
   end
   hud:Show()
   hud._phaseLine:SetText("Phase: " .. nhsSessionHudPhaseText())
+  if hud._gameModeLine then
+    hud._gameModeLine:SetText(nhsSessionHudGameModeText())
+  end
   hud._houseLine:SetText("House: " .. nhsSessionHudHouseText())
-  hud._seekerLine:SetText("Seeker: " .. nhsSessionHudSeekerText())
-  hud._foundLine:SetText(nhsSessionHudFoundFormatted())
+  -- Show "Hider" only during the picking phase; once the round runs, all locked keys are seekers.
+  local seekerRoleLabel = (NHS.IsHiderMode and NHS.IsHiderMode() and State.phase == Phase.PICK_SEEKER) and "Hider" or "Seeker"
+  hud._seekerLine:SetText(seekerRoleLabel .. ": " .. nhsSessionHudSeekerText())
   hud._hiddenLine:SetText(nhsSessionHudHiddenFormatted())
+  local closestRange = nhsSessionHudClosestRangeText()
+  if closestRange then
+    hud._closestRangeLine:SetText(closestRange)
+    hud._closestRangeLine:Show()
+    hud._foundLine:SetPoint("TOPLEFT", hud._closestRangeLine, "BOTTOMLEFT", 0, -6)
+  else
+    hud._closestRangeLine:Hide()
+    hud._foundLine:SetPoint("TOPLEFT", hud._hiddenLine, "BOTTOMLEFT", 0, -6)
+  end
+  hud._foundLine:SetText(nhsSessionHudFoundFormatted())
+  local showSeekerBtn = hud._seekerModeBtn
+    and (State.phase == Phase.HIDING or State.phase == Phase.SEARCHING)
+    and NHS.MayEnterSeekerMode and NHS.MayEnterSeekerMode()
+    and not State.seekerMode
+  if hud._seekerModeBtn then
+    if showSeekerBtn then
+      hud._seekerModeBtn:ClearAllPoints()
+      hud._seekerModeBtn:SetPoint("TOPLEFT", hud._foundLine, "BOTTOMLEFT", 0, -8)
+      hud._seekerModeBtn:Show()
+    else
+      hud._seekerModeBtn:Hide()
+    end
+  end
   local padBottom = 14
   local hTitle = hud._title:GetStringHeight() or 12
   local hPhase = hud._phaseLine:GetStringHeight() or 12
+  local hMode = (hud._gameModeLine and hud._gameModeLine:GetStringHeight()) or 12
   local hHouse = hud._houseLine:GetStringHeight() or 12
   local hSeek = hud._seekerLine:GetStringHeight() or 12
   local hHid = hud._hiddenLine:GetStringHeight() or 12
+  local hClosest = closestRange and (hud._closestRangeLine:GetStringHeight() or 12) or 0
   local hFound = hud._foundLine:GetStringHeight() or 12
-  local totalH = 12 + hTitle + 10 + hPhase + 4 + hHouse + 4 + hSeek + 8 + hHid + 6 + hFound + padBottom
+  local gapClosest = closestRange and 6 or 0
+  local hBtn = showSeekerBtn and 32 or 0
+  local totalH = 12 + hTitle + 10 + hPhase + 4 + hMode + 4 + hHouse + 4 + hSeek + 8 + hHid + gapClosest + hClosest + 6 + hFound + hBtn + padBottom
   hud:SetHeight(math.max(130, math.min(360, totalH)))
 end
 
@@ -230,6 +300,25 @@ local function nhsInitSessionHud()
   else
     hud:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -24, -160)
   end
+  local openBtn = CreateFrame("Button", nil, hud)
+  openBtn:SetSize(20, 20)
+  openBtn:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -10, -10)
+  openBtn:SetNormalTexture("Interface\\Common\\help-i")
+  openBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+  openBtn:SetScript("OnClick", function()
+    if NHS.ToggleMainWindow then
+      NHS.ToggleMainWindow()
+    end
+  end)
+  openBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:SetText("Hide & Seek", 1, 1, 1)
+    GameTooltip:AddLine("Click to open the main window.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  openBtn:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
   local title = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   title:SetPoint("TOPLEFT", 12, -12)
   title:SetText("Hide & Seek")
@@ -239,8 +328,13 @@ local function nhsInitSessionHud()
   phaseLine:SetWidth(contentW)
   phaseLine:SetJustifyH("LEFT")
   phaseLine:SetSpacing(2)
+  local gameModeLine = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  gameModeLine:SetPoint("TOPLEFT", phaseLine, "BOTTOMLEFT", 0, -4)
+  gameModeLine:SetWidth(contentW)
+  gameModeLine:SetJustifyH("LEFT")
+  gameModeLine:SetSpacing(2)
   local houseLine = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  houseLine:SetPoint("TOPLEFT", phaseLine, "BOTTOMLEFT", 0, -4)
+  houseLine:SetPoint("TOPLEFT", gameModeLine, "BOTTOMLEFT", 0, -4)
   houseLine:SetWidth(contentW)
   houseLine:SetJustifyH("LEFT")
   houseLine:SetSpacing(2)
@@ -254,16 +348,33 @@ local function nhsInitSessionHud()
   hiddenLine:SetWidth(contentW)
   hiddenLine:SetJustifyH("LEFT")
   hiddenLine:SetSpacing(2)
+  local closestRangeLine = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  closestRangeLine:SetPoint("TOPLEFT", hiddenLine, "BOTTOMLEFT", 0, -6)
+  closestRangeLine:SetWidth(contentW)
+  closestRangeLine:SetJustifyH("LEFT")
+  closestRangeLine:Hide()
   local foundLine = hud:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   foundLine:SetPoint("TOPLEFT", hiddenLine, "BOTTOMLEFT", 0, -6)
   foundLine:SetWidth(contentW)
   foundLine:SetJustifyH("LEFT")
   foundLine:SetSpacing(2)
+  local seekerModeBtn = CreateFrame("Button", nil, hud, "UIPanelButtonTemplate")
+  seekerModeBtn:SetSize(160, 24)
+  seekerModeBtn:SetText("Enter Seeker Mode")
+  seekerModeBtn:SetScript("OnClick", function()
+    if NHS.SetSeekerMode then
+      NHS.SetSeekerMode(true)
+    end
+  end)
+  seekerModeBtn:Hide()
   hud._phaseLine = phaseLine
+  hud._gameModeLine = gameModeLine
   hud._houseLine = houseLine
   hud._seekerLine = seekerLine
   hud._foundLine = foundLine
   hud._hiddenLine = hiddenLine
+  hud._closestRangeLine = closestRangeLine
+  hud._seekerModeBtn = seekerModeBtn
   UI.sessionHud = hud
   nhsSessionHudUpdate()
 end
@@ -278,6 +389,8 @@ local bmf = NHS.BuildMainFrameBridge
 if bmf then
   bmf.nhsSessionHudUpdate = nhsSessionHudUpdate
   bmf.nhsSessionHudIsActive = nhsSessionHudIsActive
+  bmf.nhsSessionHudPhaseText = nhsSessionHudPhaseText
+  bmf.nhsSessionHudGameModeText = nhsSessionHudGameModeText
   bmf.nhsSessionHudHiddenFormatted = nhsSessionHudHiddenFormatted
   bmf.nhsSessionHudFoundFormatted = nhsSessionHudFoundFormatted
   bmf.nhsSessionHudHouseText = nhsSessionHudHouseText

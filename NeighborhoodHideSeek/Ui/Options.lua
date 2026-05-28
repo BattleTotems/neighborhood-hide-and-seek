@@ -13,7 +13,7 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
   end
 
   local optf = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-  optf:SetSize(340, 338)
+  optf:SetSize(340, 410)
   optf:SetClampedToScreen(true)
   optf:SetMovable(true)
   optf:EnableMouse(true)
@@ -47,28 +47,37 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
   optGameplayHeader:SetJustifyH("LEFT")
   optGameplayHeader:SetText("Gameplay Options:")
 
-  local cbHouseSaved = CreateFrame("CheckButton", nil, optf, "UICheckButtonTemplate")
-  cbHouseSaved:SetSize(22, 22)
-  cbHouseSaved:SetPoint("TOPLEFT", optGameplayHeader, "BOTTOMLEFT", -4, -8)
-  local cbHouseSavedText = optf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  cbHouseSavedText:SetPoint("LEFT", cbHouseSaved, "RIGHT", 4, 0)
-  cbHouseSavedText:SetWidth(292)
-  cbHouseSavedText:SetJustifyH("LEFT")
-  cbHouseSavedText:SetText("Use saved house list (off = current neighborhood list)")
-
   local cbRandPickAnim = CreateFrame("CheckButton", nil, optf, "UICheckButtonTemplate")
   cbRandPickAnim:SetSize(22, 22)
-  cbRandPickAnim:SetPoint("TOPLEFT", cbHouseSavedText, "BOTTOMLEFT", -26, -6)
+  cbRandPickAnim:SetPoint("TOPLEFT", optGameplayHeader, "BOTTOMLEFT", -4, -8)
   local cbRandPickAnimText = optf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   cbRandPickAnimText:SetPoint("LEFT", cbRandPickAnim, "RIGHT", 4, 0)
   cbRandPickAnimText:SetWidth(292)
   cbRandPickAnimText:SetJustifyH("LEFT")
   cbRandPickAnimText:SetText("Use selection animation")
 
+  local cbGameplaySounds = CreateFrame("CheckButton", nil, optf, "UICheckButtonTemplate")
+  cbGameplaySounds:SetSize(22, 22)
+  cbGameplaySounds:SetPoint("TOPLEFT", cbRandPickAnimText, "BOTTOMLEFT", -26, -6)
+  local cbGameplaySoundsText = optf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  cbGameplaySoundsText:SetPoint("LEFT", cbGameplaySounds, "RIGHT", 4, 0)
+  cbGameplaySoundsText:SetWidth(292)
+  cbGameplaySoundsText:SetJustifyH("LEFT")
+  cbGameplaySoundsText:SetText("Gameplay sounds")
+
+  local cbMinimapLauncher = CreateFrame("CheckButton", nil, optf, "UICheckButtonTemplate")
+  cbMinimapLauncher:SetSize(22, 22)
+  cbMinimapLauncher:SetPoint("TOPLEFT", cbGameplaySoundsText, "BOTTOMLEFT", -26, -6)
+  local cbMinimapLauncherText = optf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  cbMinimapLauncherText:SetPoint("LEFT", cbMinimapLauncher, "RIGHT", 4, 0)
+  cbMinimapLauncherText:SetWidth(292)
+  cbMinimapLauncherText:SetJustifyH("LEFT")
+  cbMinimapLauncherText:SetText("Show minimap launcher button")
+
   local optMidSep = optf:CreateTexture(nil, "ARTWORK", nil, 1)
   optMidSep:SetColorTexture(1, 1, 1, 0.12)
   optMidSep:SetSize(300, 1)
-  optMidSep:SetPoint("TOPLEFT", cbRandPickAnimText, "BOTTOMLEFT", -26, -12)
+  optMidSep:SetPoint("TOPLEFT", cbMinimapLauncherText, "BOTTOMLEFT", -26, -14)
 
   local optSeekerHeader = optf:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   optSeekerHeader:SetPoint("TOPLEFT", optMidSep, "BOTTOMLEFT", 0, -10)
@@ -122,8 +131,9 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
     ensureSaved()
     cbParty:SetChecked(NHSV.hideGroupFramesInSeeker ~= false)
     cbMini:SetChecked(NHSV.hideMinimapInSeeker == true)
-    cbHouseSaved:SetChecked(NHSV.selectHouseFromSavedList ~= false)
     cbRandPickAnim:SetChecked(NHSV.useRandomPickAnimation ~= false)
+    cbGameplaySounds:SetChecked(NHSV.gameplaySoundsEnabled ~= false)
+    cbMinimapLauncher:SetChecked(NHSV.showMinimapButton ~= false)
     syncSeekerModeOptionButton()
   end
 
@@ -131,8 +141,12 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
     ensureSaved()
     NHSV.hideGroupFramesInSeeker = cbParty:GetChecked() and true or false
     NHSV.hideMinimapInSeeker = cbMini:GetChecked() and true or false
-    NHSV.selectHouseFromSavedList = cbHouseSaved:GetChecked() and true or false
     NHSV.useRandomPickAnimation = cbRandPickAnim:GetChecked() and true or false
+    NHSV.gameplaySoundsEnabled = cbGameplaySounds:GetChecked() and true or false
+    NHSV.showMinimapButton = cbMinimapLauncher:GetChecked() and true or false
+    if NHS.InitMinimapButton then
+      NHS.InitMinimapButton()
+    end
     if NHS.State.seekerMode then
       if NHSV.hideGroupFramesInSeeker or NHSV.hideMinimapInSeeker then
         NHS.SeekerUiPoll:Show()
@@ -144,14 +158,30 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
 
   cbParty:SetScript("OnClick", applySeekerUiOptionChange)
   cbMini:SetScript("OnClick", applySeekerUiOptionChange)
-  cbHouseSaved:SetScript("OnClick", applySeekerUiOptionChange)
   cbRandPickAnim:SetScript("OnClick", applySeekerUiOptionChange)
+  cbGameplaySounds:SetScript("OnClick", applySeekerUiOptionChange)
+  cbMinimapLauncher:SetScript("OnClick", applySeekerUiOptionChange)
+
+  local optSeekerSep2 = optf:CreateTexture(nil, "ARTWORK", nil, 1)
+  optSeekerSep2:SetColorTexture(1, 1, 1, 0.12)
+  optSeekerSep2:SetSize(300, 1)
+  optSeekerSep2:SetPoint("TOPLEFT", optSeekerHint, "BOTTOMLEFT", 0, -14)
+
+  local optResetDialogBtn = CreateFrame("Button", nil, optf, "UIPanelButtonTemplate")
+  optResetDialogBtn:SetSize(300, 26)
+  optResetDialogBtn:SetPoint("TOPLEFT", optSeekerSep2, "BOTTOMLEFT", 0, -8)
+  optResetDialogBtn:SetText("Reset Seeker Mode Dialog")
+  optResetDialogBtn:SetScript("OnClick", function()
+    ensureSaved()
+    NHSV.suppressSeekerModeDialog = false
+  end)
 
   local optCloseBtn = CreateFrame("Button", nil, optf, "UIPanelCloseButton")
   optCloseBtn:SetPoint("TOPRIGHT", -6, -6)
   optCloseBtn:SetScript("OnClick", function()
     optf:Hide()
   end)
+  optf._nhsCloseButton = optCloseBtn
 
   return {
     frame = optf,

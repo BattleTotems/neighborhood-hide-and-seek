@@ -6,6 +6,8 @@
 function NeighborhoodHideSeek.BuildMainFrame(UI)
   local NHS = NeighborhoodHideSeek
   local State = NHS.State
+  local Phase = NHS.Phase
+  local IsRoundPhase = NHS.IsRoundPhase
   local B = NHS.BuildMainFrameBridge
   assert(B, "NeighborhoodHideSeek.BuildMainFrameBridge missing (load order).")
   -- Unnamed frame avoids CreateFrame failing if a stale global name already exists.
@@ -44,14 +46,142 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   roundsHint:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -38)
 
   local sessionToggleBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  sessionToggleBtn:SetSize(308, 24)
+  sessionToggleBtn:SetSize(218, 24)
   sessionToggleBtn:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -63)
 
+  local gameplayGroupCatchUpBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameplayGroupCatchUpBtn:SetSize(90, 24)
+  gameplayGroupCatchUpBtn:SetText("Group Sync")
+  gameplayGroupCatchUpBtn:SetPoint("LEFT", sessionToggleBtn, "RIGHT", 6, 0)
+  gameplayGroupCatchUpBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText(
+      "Leader: replay the addon lines for your current round so late joiners and desynced clients catch up."
+    )
+    GameTooltip:Show()
+  end)
+  gameplayGroupCatchUpBtn:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
+  gameplayGroupCatchUpBtn:Disable()
+
+  local endRoundBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  endRoundBtn:SetSize(308, 24)
+  endRoundBtn:SetText("End Round")
+  endRoundBtn:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -8)
+  endRoundBtn:Hide()
+
+  local gameModeHdr = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  gameModeHdr:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", 0, -12)
+  gameModeHdr:SetWidth(328)
+  gameModeHdr:SetJustifyH("LEFT")
+  gameModeHdr:SetText("Game Mode")
+  gameModeHdr:Hide()
+
+  -- local gameModeInfoBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  -- gameModeInfoBtn:SetSize(100, 26)
+  -- gameModeInfoBtn:SetText("Info")
+  -- gameModeInfoBtn:SetPoint("RIGHT", gameModeHdr, "RIGHT", 0, 0)
+  -- gameModeInfoBtn:Hide()
+
+  local gameModeInfoBtn = CreateFrame("Button", nil, f)
+  gameModeInfoBtn:SetSize(24, 24)
+  gameModeInfoBtn:SetPoint("RIGHT", gameModeHdr, "RIGHT", 0, 0)
+  gameModeInfoBtn:SetNormalTexture("Interface\\Common\\help-i")
+  gameModeInfoBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+  gameModeInfoBtn:Hide()
+  gameModeInfoBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Game Mode Info", 1, 1, 1)
+    GameTooltip:AddLine("Click to learn about the different game modes.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  gameModeInfoBtn:SetScript("OnLeave", function(self)
+    GameTooltip:Hide()
+  end)
+
+  -- Game Mode Buttons
+   -- TODO: Use the game mode label from the game mode definition
+  local gameModeNormalBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameModeNormalBtn:SetSize(150, 22)
+  gameModeNormalBtn:SetText("Normal")
+  gameModeNormalBtn:SetPoint("TOPLEFT", gameModeHdr, "BOTTOMLEFT", 0, -4)
+  gameModeNormalBtn:Hide()
+
+  local gameModeNormalPlusBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameModeNormalPlusBtn:SetSize(150, 22)
+  gameModeNormalPlusBtn:SetText("Normal Plus")
+  gameModeNormalPlusBtn:SetPoint("LEFT", gameModeNormalBtn, "RIGHT", 8, 0)
+  gameModeNormalPlusBtn:Hide()
+
+  local gameModeHotColdBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameModeHotColdBtn:SetSize(150, 22)
+  gameModeHotColdBtn:SetText("Hot and Cold")
+  gameModeHotColdBtn:SetPoint("TOPLEFT", gameModeNormalBtn, "BOTTOMLEFT", 0, -4)
+  gameModeHotColdBtn:Hide()
+
+  local gameModePairedBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameModePairedBtn:SetSize(150, 22)
+  gameModePairedBtn:SetText("Paired")
+  gameModePairedBtn:SetPoint("LEFT", gameModeHotColdBtn, "RIGHT", 8, 0)
+  gameModePairedBtn:Hide()
+
+  local gameModeConquerBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameModeConquerBtn:SetSize(150, 22)
+  gameModeConquerBtn:SetText("Conquer")
+  gameModeConquerBtn:SetPoint("TOPLEFT", gameModeHotColdBtn, "BOTTOMLEFT", 0, -4)
+  gameModeConquerBtn:Hide()
+
+  local gameModeChosenOneBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameModeChosenOneBtn:SetSize(150, 22)
+  gameModeChosenOneBtn:SetText("Chosen One")
+  gameModeChosenOneBtn:SetPoint("LEFT", gameModeConquerBtn, "RIGHT", 8, 0)
+  gameModeChosenOneBtn:Hide()
+
+  local gameModeLightningBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameModeLightningBtn:SetSize(150, 22)
+  gameModeLightningBtn:SetText("Lightning")
+  gameModeLightningBtn:SetPoint("TOPLEFT", gameModeConquerBtn, "BOTTOMLEFT", 0, -4)
+  gameModeLightningBtn:Hide()
+
+  local gameModeRandomBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  gameModeRandomBtn:SetSize(150, 22)
+  gameModeRandomBtn:SetText("Random")
+  gameModeRandomBtn:SetPoint("LEFT", gameModeLightningBtn, "RIGHT", 8, 0)
+  gameModeRandomBtn:Hide()
+
+  -- House Selection
+
   local houseSelectHdr = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  houseSelectHdr:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -12)
+  houseSelectHdr:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", 0, -12)
   houseSelectHdr:SetWidth(328)
   houseSelectHdr:SetJustifyH("LEFT")
   houseSelectHdr:SetText("House selection")
+
+  local sessionHouseListHint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  sessionHouseListHint:SetWidth(328)
+  sessionHouseListHint:SetJustifyH("LEFT")
+  sessionHouseListHint:SetPoint("TOPLEFT", houseSelectHdr, "BOTTOMLEFT", 0, -4)
+  sessionHouseListHint:SetText("Choose the house list for this session (first round only).")
+  sessionHouseListHint:Hide()
+
+  local sessionListNeighborhoodBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  sessionListNeighborhoodBtn:SetSize(308, 22)
+  sessionListNeighborhoodBtn:SetText("Current Neighborhood")
+  sessionListNeighborhoodBtn:SetPoint("TOPLEFT", sessionHouseListHint, "BOTTOMLEFT", 0, -6)
+  sessionListNeighborhoodBtn:Hide()
+
+  local sessionListSavedBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  sessionListSavedBtn:SetSize(308, 22)
+  sessionListSavedBtn:SetText("Saved List")
+  sessionListSavedBtn:SetPoint("TOPLEFT", sessionListNeighborhoodBtn, "BOTTOMLEFT", 0, -4)
+  sessionListSavedBtn:Hide()
+
+  local sessionListGroupBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  sessionListGroupBtn:SetSize(308, 22)
+  sessionListGroupBtn:SetText("Group Members")
+  sessionListGroupBtn:SetPoint("TOPLEFT", sessionListSavedBtn, "BOTTOMLEFT", 0, -4)
+  sessionListGroupBtn:Hide()
 
   local lockedRoundHouseLbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   lockedRoundHouseLbl:SetPoint("TOPLEFT", houseSelectHdr, "BOTTOMLEFT", 0, -4)
@@ -79,6 +209,27 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   confirmGameHouseBtn:SetSize(308, 22)
   confirmGameHouseBtn:SetText("Confirm House")
   confirmGameHouseBtn:SetPoint("TOPLEFT", randGameHouseBtn, "BOTTOMLEFT", 0, -8)
+
+  local function nhsRestoreGameplayHousePickRowLayout()
+    candidateGameHouseLbl:ClearAllPoints()
+    candidateGameHouseLbl:SetPoint("TOPLEFT", lockedRoundHouseLbl, "BOTTOMLEFT", 0, -4)
+    randGameHouseBtn:ClearAllPoints()
+    randGameHouseBtn:SetPoint("TOPLEFT", candidateGameHouseLbl, "BOTTOMLEFT", 0, -8)
+    viewGameHousePickBtn:ClearAllPoints()
+    viewGameHousePickBtn:SetPoint("LEFT", randGameHouseBtn, "RIGHT", 8, 0)
+    confirmGameHouseBtn:ClearAllPoints()
+    confirmGameHouseBtn:SetPoint("TOPLEFT", randGameHouseBtn, "BOTTOMLEFT", 0, -8)
+  end
+
+  local function nhsHideSessionHouseListPickUi()
+    sessionHouseListHint:Hide()
+    sessionListNeighborhoodBtn:Hide()
+    sessionListSavedBtn:Hide()
+    sessionListGroupBtn:Hide()
+    lockedRoundHouseLbl:ClearAllPoints()
+    lockedRoundHouseLbl:SetPoint("TOPLEFT", houseSelectHdr, "BOTTOMLEFT", 0, -4)
+    nhsRestoreGameplayHousePickRowLayout()
+  end
 
   local seekerSelectHdr = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   seekerSelectHdr:SetPoint("TOPLEFT", confirmGameHouseBtn, "BOTTOMLEFT", 0, -12)
@@ -109,9 +260,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local hideRowLbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   hideRowLbl:SetPoint("TOPLEFT", startRoundBtn, "BOTTOMLEFT", 0, -12)
-  hideRowLbl:SetWidth(328)
+  hideRowLbl:SetWidth(308)
   hideRowLbl:SetJustifyH("LEFT")
-  hideRowLbl:SetText("Hiding — game countdown")
+  hideRowLbl:SetText("Hiding")
 
   local hidePresetBtns = {}
   for i = 1, 4 do
@@ -126,11 +277,37 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   hidePresetBtns[3]:SetPoint("TOPLEFT", hidePresetBtns[1], "BOTTOMLEFT", 0, -6)
   hidePresetBtns[4]:SetPoint("LEFT", hidePresetBtns[3], "RIGHT", 8, 0)
 
+  local hideCustomSecEdit = CreateFrame("EditBox", nil, f, "BackdropTemplate")
+  hideCustomSecEdit:SetSize(150, 22)
+  hideCustomSecEdit:SetFontObject("GameFontHighlightSmall")
+  hideCustomSecEdit:SetAutoFocus(false)
+  hideCustomSecEdit:SetMaxLetters(4)
+  hideCustomSecEdit:SetBackdrop({
+    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+    edgeFile = "Interface\\ChatFrame\\ChatFrameBorder",
+    tile = true,
+    tileSize = 8,
+    edgeSize = 12,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+  })
+  hideCustomSecEdit:SetBackdropColor(0, 0, 0, 0.35)
+  hideCustomSecEdit:SetBackdropBorderColor(0.4, 0.4, 0.45, 0.9)
+  hideCustomSecEdit:SetPoint("TOPLEFT", hidePresetBtns[3], "BOTTOMLEFT", 0, -6)
+  hideCustomSecEdit:SetText("180")
+
+  local hideCustomCountdownBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  hideCustomCountdownBtn:SetSize(150, 22)
+  hideCustomCountdownBtn:SetText("Custom")
+  hideCustomCountdownBtn:SetPoint("LEFT", hideCustomSecEdit, "RIGHT", 8, 0)
+  hideCustomCountdownBtn._kind = "hide"
+  hideCustomCountdownBtn._isCustom = true
+  hideCustomCountdownBtn._secEdit = hideCustomSecEdit
+
   local searchRowLbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  searchRowLbl:SetPoint("TOPLEFT", hidePresetBtns[3], "BOTTOMLEFT", 0, -12)
-  searchRowLbl:SetWidth(328)
+  searchRowLbl:SetPoint("TOPLEFT", hideCustomSecEdit, "BOTTOMLEFT", 0, -12)
+  searchRowLbl:SetWidth(308)
   searchRowLbl:SetJustifyH("LEFT")
-  searchRowLbl:SetText("Searching — game countdown")
+  searchRowLbl:SetText("Searching")
 
   local searchPresetBtns = {}
   for i = 1, 4 do
@@ -145,91 +322,113 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   searchPresetBtns[3]:SetPoint("TOPLEFT", searchPresetBtns[1], "BOTTOMLEFT", 0, -6)
   searchPresetBtns[4]:SetPoint("LEFT", searchPresetBtns[3], "RIGHT", 8, 0)
 
-  local ctrlSectionSpacer = CreateFrame("Frame", nil, f)
-  ctrlSectionSpacer:SetSize(308, 16)
-  ctrlSectionSpacer:SetPoint("TOPLEFT", searchPresetBtns[3], "BOTTOMLEFT", 0, -10)
+  local searchCustomSecEdit = CreateFrame("EditBox", nil, f, "BackdropTemplate")
+  searchCustomSecEdit:SetSize(150, 22)
+  searchCustomSecEdit:SetFontObject("GameFontHighlightSmall")
+  searchCustomSecEdit:SetAutoFocus(false)
+  searchCustomSecEdit:SetMaxLetters(4)
+  searchCustomSecEdit:SetBackdrop({
+    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+    edgeFile = "Interface\\ChatFrame\\ChatFrameBorder",
+    tile = true,
+    tileSize = 8,
+    edgeSize = 12,
+    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+  })
+  searchCustomSecEdit:SetBackdropColor(0, 0, 0, 0.35)
+  searchCustomSecEdit:SetBackdropBorderColor(0.4, 0.4, 0.45, 0.9)
+  searchCustomSecEdit:SetPoint("TOPLEFT", searchPresetBtns[3], "BOTTOMLEFT", 0, -6)
+  searchCustomSecEdit:SetText("240")
 
-  local endRoundBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  endRoundBtn:SetSize(308, 24)
-  endRoundBtn:SetText("End Round")
-  endRoundBtn:SetPoint("TOPLEFT", ctrlSectionSpacer, "BOTTOMLEFT", 0, 0)
+  local function configureCountdownSecEdit(edit)
+    edit:SetNumeric(true)
+    edit:SetJustifyH("RIGHT")
+    edit:SetTextInsets(10, 8, 0, 0)
+    edit:SetScript("OnTextChanged", function(self, userInput)
+      if not userInput then
+        return
+      end
+      local t = self:GetText() or ""
+      local cleaned = t:gsub("%D", "")
+      if cleaned ~= t then
+        local pos = self:GetCursorPosition()
+        local prefix = string.sub(t, 1, pos)
+        local newPos = #(prefix:gsub("%D", ""))
+        self:SetText(cleaned)
+        self:SetCursorPosition(math.min(newPos, #cleaned))
+      end
+    end)
+  end
+  configureCountdownSecEdit(hideCustomSecEdit)
+  configureCountdownSecEdit(searchCustomSecEdit)
 
-  local divControlGameplay = f:CreateTexture(nil, "ARTWORK", nil, 1)
-  divControlGameplay:SetColorTexture(1, 1, 1, 0.12)
-  divControlGameplay:SetSize(312, 1)
-  divControlGameplay:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", -8, -10)
+  local searchCustomCountdownBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  searchCustomCountdownBtn:SetSize(150, 22)
+  searchCustomCountdownBtn:SetText("Custom")
+  searchCustomCountdownBtn:SetPoint("LEFT", searchCustomSecEdit, "RIGHT", 8, 0)
+  searchCustomCountdownBtn._kind = "search"
+  searchCustomCountdownBtn._isCustom = true
+  searchCustomCountdownBtn._secEdit = searchCustomSecEdit
+
+  local revealRowLbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  revealRowLbl:SetPoint("TOPLEFT", searchCustomSecEdit, "BOTTOMLEFT", 0, -12)
+  revealRowLbl:SetWidth(308)
+  revealRowLbl:SetJustifyH("LEFT")
+  revealRowLbl:SetText("Revealing")
+
+  local revealBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  revealBtn:SetSize(308, 22)
+  revealBtn:SetText("Begin Revealing")
+  revealBtn:SetPoint("TOPLEFT", revealRowLbl, "BOTTOMLEFT", 0, -6)
 
   local orphanSessionBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   orphanSessionBtn:SetSize(308, 24)
   orphanSessionBtn:SetText("End Game Session")
   orphanSessionBtn:Hide()
 
-  local roundPhaseLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  roundPhaseLabel:SetWidth(328)
-  roundPhaseLabel:SetJustifyH("LEFT")
-  roundPhaseLabel:SetSpacing(2)
-  roundPhaseLabel:SetPoint("TOPLEFT", divControlGameplay, "BOTTOMLEFT", 8, -8)
+  local divControlOptions = f:CreateTexture(nil, "ARTWORK", nil, 1)
+  divControlOptions:SetColorTexture(1, 1, 1, 0.12)
+  divControlOptions:SetSize(312, 1)
+  divControlOptions:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", -8, -10)
 
-  local gameplayHouseLbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  gameplayHouseLbl:SetWidth(328)
-  gameplayHouseLbl:SetJustifyH("LEFT")
-  gameplayHouseLbl:SetPoint("TOPLEFT", roundPhaseLabel, "BOTTOMLEFT", 0, -6)
-  gameplayHouseLbl:SetText("House: —")
-
-  local gameplaySeekerLbl = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  gameplaySeekerLbl:SetWidth(328)
-  gameplaySeekerLbl:SetJustifyH("LEFT")
-  gameplaySeekerLbl:SetPoint("TOPLEFT", gameplayHouseLbl, "BOTTOMLEFT", 0, -6)
-  gameplaySeekerLbl:SetText("Seeker: —")
-
-  local hiddenList = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  hiddenList:SetWidth(328)
-  hiddenList:SetJustifyH("LEFT")
-  hiddenList:SetSpacing(2)
-  hiddenList:SetPoint("TOPLEFT", gameplaySeekerLbl, "BOTTOMLEFT", 0, -8)
-  hiddenList:SetText("Hidden (0): —")
-
-  local foundList = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  foundList:SetWidth(328)
-  foundList:SetJustifyH("LEFT")
-  foundList:SetSpacing(2)
-  foundList:SetPoint("TOPLEFT", hiddenList, "BOTTOMLEFT", 0, -6)
-  foundList:SetText("Found (0): —")
-
-  local viewPastGameHousesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  viewPastGameHousesBtn:SetSize(150, 22)
-  viewPastGameHousesBtn:SetText("Previous Houses")
-  viewPastGameHousesBtn:SetPoint("TOPLEFT", foundList, "BOTTOMLEFT", 0, -8)
-
-  local viewPastSeekersBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  viewPastSeekersBtn:SetSize(150, 22)
-  viewPastSeekersBtn:SetText("Previous Seekers")
-  viewPastSeekersBtn:SetPoint("LEFT", viewPastGameHousesBtn, "RIGHT", 8, 0)
+  -- History section
+  local historySectionHdr = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  historySectionHdr:SetPoint("TOPLEFT", divControlOptions, "BOTTOMLEFT", 8, -8)
+  historySectionHdr:SetWidth(328)
+  historySectionHdr:SetJustifyH("LEFT")
+  historySectionHdr:SetText("History")
 
   local pastRoundsBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  pastRoundsBtn:SetSize(308, 22)
+  pastRoundsBtn:SetSize(308, 26)
   pastRoundsBtn:SetText("Previous Rounds")
-  pastRoundsBtn:Hide()
+  pastRoundsBtn:SetPoint("TOPLEFT", historySectionHdr, "BOTTOMLEFT", 0, -6)
 
-  viewPastGameHousesBtn:Hide()
-  viewPastSeekersBtn:Hide()
+  local pastSeekersBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  pastSeekersBtn:SetSize(150, 26)
+  pastSeekersBtn:SetText("Previous Seekers")
+  pastSeekersBtn:SetPoint("TOPLEFT", pastRoundsBtn, "BOTTOMLEFT", 0, -8)
 
-  local roundHintText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  roundHintText:SetWidth(328)
-  roundHintText:SetJustifyH("LEFT")
-  roundHintText:SetSpacing(2)
-  roundHintText:Hide()
+  local pastHousesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  pastHousesBtn:SetSize(150, 26)
+  pastHousesBtn:SetText("Previous Houses")
+  pastHousesBtn:SetPoint("LEFT", pastSeekersBtn, "RIGHT", 8, 0)
 
-  local divGameplayHouse = f:CreateTexture(nil, "ARTWORK", nil, 1)
-  divGameplayHouse:SetColorTexture(1, 1, 1, 0.12)
-  divGameplayHouse:SetSize(312, 1)
-  divGameplayHouse:SetPoint("TOPLEFT", foundList, "BOTTOMLEFT", -8, -12)
+  local divHistoryOptions = f:CreateTexture(nil, "ARTWORK", nil, 1)
+  divHistoryOptions:SetColorTexture(1, 1, 1, 0.12)
+  divHistoryOptions:SetSize(312, 1)
+  divHistoryOptions:SetPoint("TOPLEFT", pastSeekersBtn, "BOTTOMLEFT", -8, -10)
 
-  -- House list / pin / saved size: separate House list window. Bottom row: How to play, View house list, Options.
+  -- Options section header + bottom row: How to play, View house list, Options.
+  local optionsSectionHdr = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  optionsSectionHdr:SetPoint("TOPLEFT", divHistoryOptions, "BOTTOMLEFT", 8, -8)
+  optionsSectionHdr:SetWidth(328)
+  optionsSectionHdr:SetJustifyH("LEFT")
+  optionsSectionHdr:SetText("Options")
+
   local howToPlayBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   howToPlayBtn:SetSize(308, 26)
   howToPlayBtn:SetText("How To Play")
-  howToPlayBtn:SetPoint("TOPLEFT", divGameplayHouse, "BOTTOMLEFT", 8, -8)
+  howToPlayBtn:SetPoint("TOPLEFT", optionsSectionHdr, "BOTTOMLEFT", 0, -6)
 
   local viewHouseListBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   viewHouseListBtn:SetSize(308, 26)
@@ -241,17 +440,25 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   optionsBtn:SetText("Options")
   optionsBtn:SetPoint("TOPLEFT", viewHouseListBtn, "BOTTOMLEFT", 0, -8)
 
+  local versionLabel = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  versionLabel:SetPoint("TOP", optionsBtn, "BOTTOM", 0, -6)
+  versionLabel:SetWidth(328)
+  versionLabel:SetJustifyH("CENTER")
+  versionLabel:SetText(NHS.ADDON_VERSION_DISPLAY or "Version —")
+
   local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
   closeBtn:SetPoint("TOPRIGHT", -6, -6)
 
   local optionsMod = NeighborhoodHideSeek.CreateOptionsFrame()
   local optf = optionsMod.frame
   local syncSeekerUiOptionsFromSaved = optionsMod.syncFromSaved
+  UI.syncOptionsFromSaved = syncSeekerUiOptionsFromSaved
 
   local hl = NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
   local hf = hl.frame
   local listStatus = hl.listStatus
   local refreshBtn = hl.refreshBtn
+  local updateSavedListBtn = hl.updateSavedListBtn
   local pinBtn = hl.pinBtn
   local sharePinBtn = hl.sharePinBtn
   local housingSelText = hl.housingSelText
@@ -262,6 +469,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   local scroll = hl.scroll
   local child = hl.child
   local syncViewHouseListButtonLabel = hl.syncViewHouseListButtonLabel
+  UI.syncViewHouseListButtonLabel = syncViewHouseListButtonLabel
 
   local psMod = NHS.CreatePastSeekersFrame()
   local psf = psMod.frame
@@ -269,6 +477,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local howToPlayMod = NHS.CreateHowToPlayFrame()
   local htpf = howToPlayMod.frame
+
+  local gameModeInfoMod = NHS.CreateGameModesInfoFrame()
+  local gmif = gameModeInfoMod.frame
 
   local savedSizesCallbacks = {}
   local shmod = NHS.CreateSavedSizesFrame(savedSizesCallbacks)
@@ -316,28 +527,57 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   local refreshGroupSeekerPickList = gsPickMod.refresh
 
   howToPlayBtn:SetScript("OnClick", function()
+    if NHS.RestoreEmbeddedSettingsFrames then
+      NHS.RestoreEmbeddedSettingsFrames()
+    end
     htpf:Show()
   end)
 
+  gameModeInfoBtn:SetScript("OnClick", function()
+    if NHS.RestoreEmbeddedSettingsFrames then
+      NHS.RestoreEmbeddedSettingsFrames()
+    end
+    gmif:Show()
+  end)
+
+  pastRoundsBtn:SetScript("OnClick", function()
+    if pastRoundsFrame:IsShown() then
+      pastRoundsFrame:Hide()
+    else
+      refreshPastRoundsPanel()
+      pastRoundsFrame:Show()
+    end
+  end)
+
+  pastSeekersBtn:SetScript("OnClick", function()
+    if psf:IsShown() then
+      psf:Hide()
+    else
+      refreshPastSeekersPanel()
+      psf:Show()
+    end
+  end)
+
+  pastHousesBtn:SetScript("OnClick", function()
+    if ghpf:IsShown() then
+      ghpf:Hide()
+    else
+      refreshGameplayPastHousesPanel()
+      ghpf:Show()
+    end
+  end)
+
   closeBtn:SetScript("OnClick", function()
-    hf:Hide()
-    syncViewHouseListButtonLabel()
-    optf:Hide()
-    psf:Hide()
-    htpf:Hide()
-    shf:Hide()
-    ghfp:Hide()
-    ghpf:Hide()
-    pastRoundsFrame:Hide()
-    randomPickFrame:Hide()
-    gsfp:Hide()
-    f:Hide()
+    NHS.HideMainWindowFully(UI)
   end)
 
   optionsBtn:SetScript("OnClick", function()
     if optf:IsShown() then
       optf:Hide()
     else
+      if NHS.RestoreEmbeddedSettingsFrames then
+        NHS.RestoreEmbeddedSettingsFrames()
+      end
       syncSeekerUiOptionsFromSaved()
       optf:Show()
     end
@@ -363,7 +603,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end
 
   local function syncHouseSizePickerEnabled()
-    local canKey = State.selectedEntry ~= nil and NeighborhoodHideSeek.SavedHouses.StableKeyFromEntry(State.selectedEntry) ~= nil
+    local canKey = State.selectedEntry ~= nil
+      and NeighborhoodHideSeek.EntryHasOwnerDisplay(State.selectedEntry)
+      and NeighborhoodHideSeek.SavedHouses.StableKeyFromEntry(State.selectedEntry) ~= nil
     for _, b in ipairs(houseSizePresetBtns) do
       b:SetEnabled(canKey)
     end
@@ -408,6 +650,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     if not entry then
       return
     end
+    if not NeighborhoodHideSeek.EntryHasOwnerDisplay(entry) then
+      return
+    end
     State.selectedEntry = entry
     State.selectedIndex = index
     State.selectedNeighborID = NeighborhoodHideSeek.NeighborIDFromEntry(entry)
@@ -429,6 +674,12 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end
 
   local function refreshHouseList()
+    -- Once the session house list source is committed the cache is frozen for the
+    -- remainder of the session. Entering a house, zoning, or any other refresh
+    -- trigger must not overwrite the list the leader chose at selection time.
+    if State.gameSessionActive and State.gameSessionHouseListSource ~= nil then
+      return
+    end
     local list = NeighborhoodHideSeek.HousingApi.FetchVisitableHouses()
     housesCache = list
     NeighborhoodHideSeek.HousingApi.RebuildPlotPinIndexFromRoot()
@@ -436,6 +687,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       b:Hide()
     end
     local y = 0
+    local ownedCount = 0
     for i, entry in ipairs(housesCache) do
       local btn = houseButtons[i]
       if not btn then
@@ -444,9 +696,32 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
         btn:SetScript("OnClick", function()
           selectHouse(btn._idx)
         end)
+        btn:SetScript("OnEnter", function(self)
+          if self:IsEnabled() then
+            return
+          end
+          GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+          GameTooltip:SetText("Empty plot", 1, 1, 1)
+          GameTooltip:AddLine(
+            "No neighbor in this plot. You cannot select it, save a size, or use it in neighborhood rounds.",
+            1,
+            0.82,
+            0,
+            true
+          )
+          GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave", function()
+          GameTooltip:Hide()
+        end)
         houseButtons[i] = btn
       end
       btn._idx = i
+      local hasOwner = NeighborhoodHideSeek.EntryHasOwnerDisplay(entry)
+      if hasOwner then
+        ownedCount = ownedCount + 1
+      end
+      btn:SetEnabled(hasOwner)
       btn:SetText(NeighborhoodHideSeek.LabelFromEntry(entry, i) .. NeighborhoodHideSeek.SavedHouses.SavedSizeSuffixForEntry(entry))
       btn:SetPoint("TOPLEFT", 10, -y)
       btn:Show()
@@ -454,7 +729,18 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     end
     child:SetHeight(math.max(y, 1))
     scroll:SetVerticalScroll(0)
-    listStatus:SetText(("Visitable houses: %d"):format(#housesCache))
+    if State.selectedEntry and not NeighborhoodHideSeek.EntryHasOwnerDisplay(State.selectedEntry) then
+      State.selectedEntry = nil
+      State.selectedIndex = nil
+      State.selectedNeighborID = nil
+      State.selectedLabel = nil
+      housingSelText:SetText("Selected House: (none)")
+      updateMainHouseSizeLine()
+      local canH = NeighborhoodHideSeek.HousingApi.Available()
+      pinBtn:SetEnabled(canH and State.selectedEntry ~= nil)
+      sharePinBtn:SetEnabled(canH and State.selectedEntry ~= nil)
+    end
+    listStatus:SetText(("Plots: %d (%d occupied)"):format(#housesCache, ownedCount))
     syncHouseSizePickerEnabled()
     syncHouseListFrameHeight()
   end
@@ -469,40 +755,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     syncViewHouseListButtonLabel()
   end)
 
-  local function refreshFoundList()
-    hiddenList:SetText(B.nhsSessionHudHiddenFormatted())
-    foundList:SetText(B.nhsSessionHudFoundFormatted())
-  end
 
-  local function syncGameplayHouseSeekerLabels()
-    gameplayHouseLbl:SetText("House: " .. B.nhsSessionHudHouseText())
-    gameplaySeekerLbl:SetText("Seeker: " .. B.nhsSessionHudSeekerText())
-  end
 
-  local function roundPhaseDescription()
-    if State.roundPhase == "pending" then
-      return "Preparing"
-    elseif State.roundPhase == "hiding" then
-      return "Hiding"
-    elseif State.roundPhase == "searching" then
-      return "Searching"
-    end
-    return tostring(State.roundPhase)
-  end
-
-  local function gameplayPhaseLine()
-    if State.gameSessionActive and State.gamePhase == "pick_house" then
-      return "Phase: House selection"
-    end
-    if State.gameSessionActive and State.gamePhase == "pick_seeker" then
-      return "Phase: Seeker selection"
-    end
-    if State.gameSessionActive and State.gamePhase == "round_active" then
-      return ("Phase: %s"):format(roundPhaseDescription())
-    end
-    return nil
-  end
-
+  -- Main window height sync
   local function syncMainFrameHeight()
     if not f or not optionsBtn then
       return
@@ -513,28 +768,32 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       return
     end
     local lowest = btnBottom
-    local vhlBottom = viewHouseListBtn and viewHouseListBtn:GetBottom()
-    if vhlBottom then
-      lowest = math.min(lowest, vhlBottom)
-    end
-    local htpBottom = howToPlayBtn and howToPlayBtn:GetBottom()
-    if htpBottom then
-      lowest = math.min(lowest, htpBottom)
-    end
-    if roundHintText:IsShown() then
-      local hb = roundHintText:GetBottom()
-      if hb then
-        lowest = math.min(lowest, hb)
+    if versionLabel then
+      local vb = versionLabel:GetBottom()
+      if vb then
+        lowest = math.min(lowest, vb)
       end
     end
     local pad = 22
-    local h = topEdge - lowest + pad
-    h = math.max(260, math.min(1000, h))
+    local h = topEdge - lowest + pad 
     f:SetHeight(h)
   end
 
   local function setControlSectionVisible(show)
+    if not show then
+      nhsHideSessionHouseListPickUi()
+    end
     sessionToggleBtn:SetShown(show)
+    gameModeHdr:SetShown(show)
+    gameModeInfoBtn:SetShown(show)
+    gameModeNormalBtn:SetShown(show)
+    gameModeNormalPlusBtn:SetShown(show)
+    gameModeHotColdBtn:SetShown(show)
+    gameModePairedBtn:SetShown(show)
+    gameModeConquerBtn:SetShown(show)
+    gameModeChosenOneBtn:SetShown(show)
+    gameModeLightningBtn:SetShown(show)
+    gameModeRandomBtn:SetShown(show)
     houseSelectHdr:SetShown(show)
     lockedRoundHouseLbl:SetShown(show)
     candidateGameHouseLbl:SetShown(show)
@@ -548,94 +807,40 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     startRoundBtn:SetShown(show)
     hideRowLbl:SetShown(show)
     searchRowLbl:SetShown(show)
-    ctrlSectionSpacer:SetShown(show)
     for _, b in ipairs(hidePresetBtns) do
       b:SetShown(show)
     end
     for _, b in ipairs(searchPresetBtns) do
       b:SetShown(show)
     end
+    hideCustomSecEdit:SetShown(show)
+    hideCustomCountdownBtn:SetShown(show)
+    searchCustomSecEdit:SetShown(show)
+    searchCustomCountdownBtn:SetShown(show)
+    revealRowLbl:SetShown(show)
+    revealBtn:SetShown(show)
     endRoundBtn:SetShown(show)
+    gameplayGroupCatchUpBtn:SetShown(show)
+    divControlOptions:SetShown(show)
   end
 
-  local function layoutGameplayBlock(topAnchor, xOff, yOff, forLeaderUi)
-    forLeaderUi = forLeaderUi ~= false
-    if forLeaderUi then
-      divControlGameplay:ClearAllPoints()
-      divControlGameplay:Show()
-      if topAnchor == f then
-        divControlGameplay:SetPoint("TOPLEFT", f, "TOPLEFT", xOff, yOff)
-      else
-        divControlGameplay:SetPoint("TOPLEFT", topAnchor, "BOTTOMLEFT", xOff - 8, yOff + 6)
-      end
-    else
-      divControlGameplay:Hide()
+  local function nhsCountdownFormatDuration(sec)
+    sec = math.floor(tonumber(sec) or 0)
+    if sec < 1 then
+      return "0 sec"
     end
-
-    local phaseAnchor
-    local phasePoint
-    local phaseRel
-    local phaseX
-    local phaseY
-
-    if orphanSessionBtn:IsShown() then
-      orphanSessionBtn:ClearAllPoints()
-      if forLeaderUi then
-        orphanSessionBtn:SetPoint("TOPLEFT", divControlGameplay, "BOTTOMLEFT", 8, -8)
-      else
-        orphanSessionBtn:SetPoint("TOPLEFT", f, "TOPLEFT", xOff, yOff)
-      end
-      phaseAnchor = orphanSessionBtn
-      phasePoint = "BOTTOMLEFT"
-      phaseRel = "TOPLEFT"
-      phaseX = 0
-      phaseY = -8
-    elseif forLeaderUi then
-      phaseAnchor = divControlGameplay
-      phasePoint = "BOTTOMLEFT"
-      phaseRel = "TOPLEFT"
-      phaseX = 8
-      phaseY = -8
-    else
-      phaseAnchor = f
-      phasePoint = "TOPLEFT"
-      phaseRel = "TOPLEFT"
-      phaseX = xOff
-      phaseY = yOff
+    if sec < 60 then
+      return ("%d sec"):format(sec)
     end
-
-    roundPhaseLabel:ClearAllPoints()
-    roundPhaseLabel:SetPoint(phaseRel, phaseAnchor, phasePoint, phaseX, phaseY)
-    gameplayHouseLbl:ClearAllPoints()
-    gameplayHouseLbl:SetPoint("TOPLEFT", roundPhaseLabel, "BOTTOMLEFT", 0, -6)
-    gameplaySeekerLbl:ClearAllPoints()
-    gameplaySeekerLbl:SetPoint("TOPLEFT", gameplayHouseLbl, "BOTTOMLEFT", 0, -6)
-    hiddenList:ClearAllPoints()
-    hiddenList:SetPoint("TOPLEFT", gameplaySeekerLbl, "BOTTOMLEFT", 0, -8)
-    foundList:ClearAllPoints()
-    foundList:SetPoint("TOPLEFT", hiddenList, "BOTTOMLEFT", 0, -6)
+    if sec % 60 == 0 then
+      local m = sec / 60
+      return m == 1 and "1 min" or ("%d min"):format(m)
+    end
+    return ("%d min %d s"):format(math.floor(sec / 60), sec % 60)
   end
 
-  -- Past session lists + divider below phase / house / seeker / hidden / found (any phase with an active session HUD).
-  local function layoutGameplayDetailsFooter(showPastHistoryRow)
-    viewPastGameHousesBtn:ClearAllPoints()
-    viewPastSeekersBtn:ClearAllPoints()
-    pastRoundsBtn:ClearAllPoints()
-    divGameplayHouse:ClearAllPoints()
-    if showPastHistoryRow then
-      viewPastGameHousesBtn:SetPoint("TOPLEFT", foundList, "BOTTOMLEFT", 0, -8)
-      viewPastSeekersBtn:SetPoint("LEFT", viewPastGameHousesBtn, "RIGHT", 8, 0)
-      pastRoundsBtn:SetPoint("TOPLEFT", viewPastGameHousesBtn, "BOTTOMLEFT", 0, -8)
-      viewPastGameHousesBtn:Show()
-      viewPastSeekersBtn:Show()
-      pastRoundsBtn:Show()
-      divGameplayHouse:SetPoint("TOPLEFT", pastRoundsBtn, "BOTTOMLEFT", -8, -10)
-    else
-      viewPastGameHousesBtn:Hide()
-      viewPastSeekersBtn:Hide()
-      pastRoundsBtn:Hide()
-      divGameplayHouse:SetPoint("TOPLEFT", foundList, "BOTTOMLEFT", -8, -12)
-    end
+  local function nhsPresetButtonCaptionWithDuration(label, sec)
+    return ("%s (%s)"):format(label, nhsCountdownFormatDuration(sec))
   end
 
   local function refreshGameRounds()
@@ -644,104 +849,25 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     local useLeaderUi = not ingroup or leader
     local mayAct = B.nhsMayUseLeaderGameActions()
     local sess = State.gameSessionActive
-    local pickHouse = sess and State.gamePhase == "pick_house"
-    local pickSeeker = sess and State.gamePhase == "pick_seeker"
-    local inRound = sess and State.gamePhase == "round_active"
+    local pickGameMode = sess and State.phase == Phase.PICK_GAME_MODE
+    local pickHouse = sess and State.phase == Phase.PICK_HOUSE
+    local pickSeeker = sess and State.phase == Phase.PICK_SEEKER
+    local inRound = sess and IsRoundPhase(State.phase)
     local showOrphanEnd = sess and ingroup and not leader
 
-    randomPickAnim.syncPhase(sess, pickHouse, pickSeeker, useLeaderUi)
-
-    if ingroup and leader then
-      State.remoteRoundActive = false
-      State.remoteSeekerKey = nil
-    end
-
-    roundHintText:Hide()
+    randomPickAnim.syncPhase(
+      sess,
+      pickHouse and State.gameSessionHouseListSource ~= nil,
+      pickSeeker,
+      useLeaderUi
+    )
 
     if not useLeaderUi then
       setControlSectionVisible(false)
-      sessionToggleBtn:Hide()
+      roundsHint:Hide()
       orphanSessionBtn:SetShown(showOrphanEnd)
-      roundsHint:Show()
-      if State.gameSessionActive then
-        roundsHint:SetText(
-          "Party/raid data may be unavailable briefly during travel or loading. "
-            .. "Session is kept in memory and saved — it will not be deleted automatically."
-        )
-        layoutGameplayBlock(f, 16, -72, false)
-        layoutGameplayDetailsFooter(B.nhsSessionHudIsActive())
-        roundPhaseLabel:Hide()
-        syncGameplayHouseSeekerLabels()
-        roundHintText:ClearAllPoints()
-        roundHintText:SetPoint("TOPLEFT", divGameplayHouse, "BOTTOMLEFT", 8, -10)
-        roundHintText:SetWidth(328)
-        roundHintText:Show()
-        roundHintText:SetText(
-          "Game control is hidden until you are party/raid leader again. "
-            .. "Use End game session below to clear saved state."
-        )
-        viewPastGameHousesBtn:SetEnabled(#State.gameHouseHistory > 0)
-        viewPastSeekersBtn:SetEnabled(#State.gameSeekerHistory > 0)
-        pastRoundsBtn:SetEnabled(#State.pastRounds > 0)
-        refreshFoundList()
-        syncSeekerUiOptionsFromSaved()
-        syncMainFrameHeight()
-        if B.nhsSessionHudUpdate then
-          B.nhsSessionHudUpdate()
-        end
-        return
-      end
-      if ingroup and State.remoteRoundActive then
-        roundsHint:SetText("Group sync (addon); party/raid lines when out of combat")
-        orphanSessionBtn:Hide()
-        layoutGameplayBlock(f, 16, -40, false)
-        layoutGameplayDetailsFooter(B.nhsSessionHudIsActive())
-        roundPhaseLabel:SetWidth(328)
-        roundPhaseLabel:SetText(("Phase: %s"):format(roundPhaseDescription()))
-        roundPhaseLabel:Show()
-        syncGameplayHouseSeekerLabels()
-        roundHintText:ClearAllPoints()
-        roundHintText:SetPoint("TOPLEFT", divGameplayHouse, "BOTTOMLEFT", 8, -10)
-        roundHintText:SetWidth(328)
-        roundHintText:Show()
-        if State.roundPhase == "searching" then
-          roundHintText:SetText(
-            "If you are the seeker, use Options → Enter seeker mode if needed, then target party/raid members to mark them found."
-          )
-        elseif State.roundPhase == "hiding" then
-          roundHintText:SetText(
-            "Hiding — the leader can start a searching countdown when ready."
-          )
-        else
-          roundHintText:SetText(
-            "Preparing — the leader will start a hiding countdown when ready."
-          )
-        end
-        viewPastGameHousesBtn:SetEnabled(#State.gameHouseHistory > 0)
-        viewPastSeekersBtn:SetEnabled(#State.gameSeekerHistory > 0)
-        pastRoundsBtn:SetEnabled(#State.pastRounds > 0)
-        refreshFoundList()
-        syncSeekerUiOptionsFromSaved()
-        syncMainFrameHeight()
-        if B.nhsSessionHudUpdate then
-          B.nhsSessionHudUpdate()
-        end
-        return
-      end
-      orphanSessionBtn:Hide()
-      roundsHint:SetText(
-        not ingroup and "Join a party or raid to sync game rounds with the leader."
-          or "Only the party/raid leader can run game control."
-      )
-      roundsHint:Show()
-      layoutGameplayBlock(f, 16, -64, false)
-      layoutGameplayDetailsFooter(B.nhsSessionHudIsActive())
-      roundPhaseLabel:Hide()
-      syncGameplayHouseSeekerLabels()
-      viewPastGameHousesBtn:SetEnabled(#State.gameHouseHistory > 0)
-      viewPastSeekersBtn:SetEnabled(#State.gameSeekerHistory > 0)
-      pastRoundsBtn:SetEnabled(#State.pastRounds > 0)
-      refreshFoundList()
+      historySectionHdr:ClearAllPoints()
+      historySectionHdr:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -44)
       syncSeekerUiOptionsFromSaved()
       syncMainFrameHeight()
       if B.nhsSessionHudUpdate then
@@ -755,9 +881,12 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     roundsHint:Hide()
     sessionToggleBtn:Show()
     orphanSessionBtn:Hide()
+    historySectionHdr:ClearAllPoints()
+    historySectionHdr:SetPoint("TOPLEFT", divControlOptions, "BOTTOMLEFT", 8, -8)
 
     sessionToggleBtn:SetText(sess and "End Game Session" or "Start Game Session")
     sessionToggleBtn:SetEnabled(mayAct)
+    gameplayGroupCatchUpBtn:SetEnabled(sess and ingroup and mayAct)
 
     if State.gameHouseCandidateDisplay then
       candidateGameHouseLbl:SetText(
@@ -775,6 +904,17 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     end
 
     if not sess then
+      nhsHideSessionHouseListPickUi()
+      gameModeHdr:Hide()
+      gameModeInfoBtn:Hide()
+      gameModeNormalBtn:Hide()
+      gameModeNormalPlusBtn:Hide()
+      gameModeHotColdBtn:Hide()
+      gameModePairedBtn:Hide()
+      gameModeConquerBtn:Hide()
+      gameModeChosenOneBtn:Hide()
+      gameModeLightningBtn:Hide()
+      gameModeRandomBtn:Hide()
       houseSelectHdr:Hide()
       lockedRoundHouseLbl:Hide()
       candidateGameHouseLbl:Hide()
@@ -787,45 +927,138 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       selectSeekerBtn:Hide()
       startRoundBtn:Hide()
     else
-      houseSelectHdr:Show()
+      gameModeHdr:SetShown(pickGameMode)
+      gameModeInfoBtn:SetShown(pickGameMode)
+      gameModeNormalBtn:SetShown(pickGameMode)
+      gameModeNormalPlusBtn:SetShown(pickGameMode)
+      gameModeHotColdBtn:SetShown(pickGameMode)
+      gameModePairedBtn:SetShown(pickGameMode)
+      gameModeConquerBtn:SetShown(pickGameMode)
+      gameModeChosenOneBtn:SetShown(pickGameMode)
+      gameModeLightningBtn:SetShown(pickGameMode)
+      gameModeRandomBtn:SetShown(pickGameMode)
+      local showHouseSection = pickHouse or pickGameMode or pickSeeker
+        or (inRound and State.phase ~= Phase.SEARCHING and State.phase ~= Phase.REVEALING)
+      houseSelectHdr:SetShown(showHouseSection)
       local showHousePick = pickHouse
-      candidateGameHouseLbl:SetShown(showHousePick)
-      randGameHouseBtn:SetShown(showHousePick)
-      viewGameHousePickBtn:SetShown(showHousePick)
-      confirmGameHouseBtn:SetShown(showHousePick)
-      lockedRoundHouseLbl:SetShown(pickSeeker or inRound)
+      local needSessionListPick = showHousePick and mayAct and State.gameSessionHouseListSource == nil
+      if needSessionListPick then
+        sessionHouseListHint:Show()
+        sessionListNeighborhoodBtn:Show()
+        sessionListSavedBtn:Show()
+        sessionListGroupBtn:Show()
+        local ownedN = 0
+        for _, e in ipairs(housesCache) do
+          if NeighborhoodHideSeek.EntryHasOwnerDisplay(e) then
+            ownedN = ownedN + 1
+          end
+        end
+        local nab = NeighborhoodHideSeek.HousingApi.Available() and ownedN > 0
+        sessionListNeighborhoodBtn:SetEnabled(nab)
+        sessionListSavedBtn:SetEnabled(NeighborhoodHideSeek.SavedHouses.CountSavedHouseSizes() > 0)
+        sessionListGroupBtn:SetEnabled(#B.nhsGetGroupRoster() > 0)
+      else
+        nhsHideSessionHouseListPickUi()
+      end
+      candidateGameHouseLbl:SetShown(showHousePick and not needSessionListPick)
+      randGameHouseBtn:SetShown(showHousePick and not needSessionListPick)
+      viewGameHousePickBtn:SetShown(showHousePick and not needSessionListPick)
+      confirmGameHouseBtn:SetShown(showHousePick and not needSessionListPick)
+      lockedRoundHouseLbl:SetShown(pickGameMode or pickSeeker
+        or (inRound and State.phase ~= Phase.SEARCHING and State.phase ~= Phase.REVEALING))
       seekerSelectHdr:SetShown(pickSeeker)
       candidateSeekerLbl:SetShown(pickSeeker)
       randSeekerBtn:SetShown(pickSeeker)
       selectSeekerBtn:SetShown(pickSeeker)
       startRoundBtn:SetShown(pickSeeker)
+      -- Update role-specific labels for hider mode (chosen_one: seekers=0).
+      if NHS.IsHiderMode and NHS.IsHiderMode() then
+        seekerSelectHdr:SetText("Hider selection")
+        randSeekerBtn:SetText("Random Hider")
+        selectSeekerBtn:SetText("Select Hider")
+      else
+        seekerSelectHdr:SetText("Seeker selection")
+        randSeekerBtn:SetText("Random Seeker")
+        selectSeekerBtn:SetText("Select Seeker")
+      end
     end
 
     local showRoundTimers = sess and inRound
-    hideRowLbl:SetShown(showRoundTimers)
-    searchRowLbl:SetShown(showRoundTimers)
-    ctrlSectionSpacer:SetShown(showRoundTimers)
-    endRoundBtn:SetShown(showRoundTimers)
-    for _, b in ipairs(hidePresetBtns) do
-      b:SetShown(showRoundTimers)
-    end
-    for _, b in ipairs(searchPresetBtns) do
-      b:SetShown(showRoundTimers)
-    end
+    local showHidePhaseRow = showRoundTimers and State.phase == Phase.PENDING
+    local showSearchPhaseRow = showRoundTimers and State.phase == Phase.HIDING
+    local showRevealPhaseRow = showRoundTimers and State.phase == Phase.SEARCHING
 
-    if State.gameCandidateDisplay then
-      candidateSeekerLbl:SetText(
-        ("Current seeker (not locked in): %s"):format(State.gameCandidateDisplay)
-      )
-    else
-      candidateSeekerLbl:SetText("Current seeker (not locked in): —")
+    hideRowLbl:SetShown(showHidePhaseRow)
+    for _, b in ipairs(hidePresetBtns) do
+      b:SetShown(showHidePhaseRow)
+    end
+    hideCustomSecEdit:SetShown(showHidePhaseRow)
+    hideCustomCountdownBtn:SetShown(showHidePhaseRow)
+
+    searchRowLbl:SetShown(showSearchPhaseRow)
+    for _, b in ipairs(searchPresetBtns) do
+      b:SetShown(showSearchPhaseRow)
+    end
+    searchCustomSecEdit:SetShown(showSearchPhaseRow)
+    searchCustomCountdownBtn:SetShown(showSearchPhaseRow)
+
+    revealRowLbl:SetShown(showRevealPhaseRow)
+    revealBtn:SetShown(showRevealPhaseRow)
+
+    -- End Round is always visible in a session; disabled only during game mode selection.
+    -- Text changes to "Start Next Round" in Revealing (no other controls shown then).
+    endRoundBtn:SetShown(sess)
+    endRoundBtn:SetText(sess and State.phase == Phase.REVEALING and "Start Next Round" or "End Round")
+    endRoundBtn:SetEnabled(mayAct and sess and State.phase ~= Phase.PICK_HOUSE)
+
+    do
+      local required = B.nhsGetRequiredSeekerCount and B.nhsGetRequiredSeekerCount() or 1
+      local isHiderMode = NHS.IsHiderMode and NHS.IsHiderMode()
+      local picked = #State.gameCandidateKeys
+      if picked > 0 then
+        local names = {}
+        for _, k in ipairs(State.gameCandidateKeys) do
+          names[#names + 1] = Ambiguate(k, "short")
+        end
+        local nameStr = table.concat(names, ", ")
+        if required > 1 then
+          candidateSeekerLbl:SetText(("Seekers (%d/%d): %s"):format(picked, required, nameStr))
+        elseif isHiderMode then
+          candidateSeekerLbl:SetText(("Hider (not confirmed): %s"):format(nameStr))
+        else
+          candidateSeekerLbl:SetText(("Seeker (not confirmed): %s"):format(nameStr))
+        end
+      else
+        if required > 1 then
+          candidateSeekerLbl:SetText(("Seekers (0/%d): — (pick %d seekers)"):format(required, required))
+        elseif isHiderMode then
+          candidateSeekerLbl:SetText("Hider (not confirmed): —")
+        else
+          candidateSeekerLbl:SetText("Seeker (not confirmed): —")
+        end
+      end
+      if isHiderMode then
+        startRoundBtn:SetText("Confirm Hider")
+      else
+        startRoundBtn:SetText(required > 1 and "Confirm Seekers" or "Confirm Seeker")
+      end
     end
 
     for i, b in ipairs(hidePresetBtns) do
-      b:SetText(NHS.ROUND_PRESETS[i].label)
+      local pr = NHS.ROUND_PRESETS[i]
+      local hideSec = pr.hideSec
+      if NHS.GetRoundHideSeconds then
+        hideSec = NHS.GetRoundHideSeconds(pr.hideSec)
+      end
+      b:SetText(nhsPresetButtonCaptionWithDuration(pr.label, hideSec))
     end
     for i, b in ipairs(searchPresetBtns) do
-      b:SetText(NHS.ROUND_PRESETS[i].label)
+      local pr = NHS.ROUND_PRESETS[i]
+      local searchSec = pr.searchSec
+      if NHS.GetRoundSearchSeconds then
+        searchSec = NHS.GetRoundSearchSeconds(pr.searchSec)
+      end
+      b:SetText(nhsPresetButtonCaptionWithDuration(pr.label, searchSec))
     end
 
     if not sess then
@@ -841,11 +1074,24 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       for _, b in ipairs(searchPresetBtns) do
         b:SetEnabled(false)
       end
-      endRoundBtn:SetEnabled(false)
-    elseif pickHouse then
-      randGameHouseBtn:SetEnabled(mayAct)
-      viewGameHousePickBtn:SetEnabled(mayAct)
-      confirmGameHouseBtn:SetEnabled(mayAct and State.gameHouseCandidateKey ~= nil)
+      revealBtn:SetEnabled(false)
+
+      hideCustomSecEdit:SetEnabled(false)
+      hideCustomCountdownBtn:SetEnabled(false)
+      searchCustomSecEdit:SetEnabled(false)
+      searchCustomCountdownBtn:SetEnabled(false)
+    elseif pickGameMode then
+      gameModeNormalBtn:SetEnabled(mayAct)
+      gameModeNormalPlusBtn:SetEnabled(mayAct)
+      gameModeHotColdBtn:SetEnabled(mayAct)
+      gameModePairedBtn:SetEnabled(mayAct)
+      gameModeConquerBtn:SetEnabled(mayAct)
+      gameModeChosenOneBtn:SetEnabled(mayAct)
+      gameModeLightningBtn:SetEnabled(mayAct)
+      gameModeRandomBtn:SetEnabled(mayAct)
+      randGameHouseBtn:SetEnabled(false)
+      viewGameHousePickBtn:SetEnabled(false)
+      confirmGameHouseBtn:SetEnabled(false)
       randSeekerBtn:SetEnabled(false)
       selectSeekerBtn:SetEnabled(false)
       startRoundBtn:SetEnabled(false)
@@ -855,23 +1101,56 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       for _, b in ipairs(searchPresetBtns) do
         b:SetEnabled(false)
       end
-      endRoundBtn:SetEnabled(false)
-    elseif pickSeeker then
-      randGameHouseBtn:SetEnabled(false)
-      viewGameHousePickBtn:SetEnabled(false)
-      confirmGameHouseBtn:SetEnabled(false)
-      randSeekerBtn:SetEnabled(mayAct)
-      selectSeekerBtn:SetEnabled(mayAct)
-      startRoundBtn:SetEnabled(
-        mayAct and State.gameCandidateKey ~= nil and State.gameLockedHouseDisplay ~= nil
-      )
+      revealBtn:SetEnabled(false)
+
+      hideCustomSecEdit:SetEnabled(false)
+      hideCustomCountdownBtn:SetEnabled(false)
+      searchCustomSecEdit:SetEnabled(false)
+      searchCustomCountdownBtn:SetEnabled(false)
+    elseif pickHouse then
+      local needSessionListPick = mayAct and State.gameSessionHouseListSource == nil
+      randGameHouseBtn:SetEnabled(mayAct and not needSessionListPick)
+      viewGameHousePickBtn:SetEnabled(mayAct and not needSessionListPick)
+      confirmGameHouseBtn:SetEnabled(mayAct and not needSessionListPick and State.gameHouseCandidateKey ~= nil)
+      randSeekerBtn:SetEnabled(false)
+      selectSeekerBtn:SetEnabled(false)
+      startRoundBtn:SetEnabled(false)
       for _, b in ipairs(hidePresetBtns) do
         b:SetEnabled(false)
       end
       for _, b in ipairs(searchPresetBtns) do
         b:SetEnabled(false)
       end
-      endRoundBtn:SetEnabled(false)
+      revealBtn:SetEnabled(false)
+
+      hideCustomSecEdit:SetEnabled(false)
+      hideCustomCountdownBtn:SetEnabled(false)
+      searchCustomSecEdit:SetEnabled(false)
+      searchCustomCountdownBtn:SetEnabled(false)
+    elseif pickSeeker then
+      randGameHouseBtn:SetEnabled(false)
+      viewGameHousePickBtn:SetEnabled(false)
+      confirmGameHouseBtn:SetEnabled(false)
+      randSeekerBtn:SetEnabled(mayAct)
+      selectSeekerBtn:SetEnabled(mayAct)
+      do
+        local required = B.nhsGetRequiredSeekerCount and B.nhsGetRequiredSeekerCount() or 1
+        startRoundBtn:SetEnabled(
+          mayAct and #State.gameCandidateKeys == required and State.gameLockedHouseDisplay ~= nil
+        )
+      end
+      for _, b in ipairs(hidePresetBtns) do
+        b:SetEnabled(false)
+      end
+      for _, b in ipairs(searchPresetBtns) do
+        b:SetEnabled(false)
+      end
+      revealBtn:SetEnabled(false)
+
+      hideCustomSecEdit:SetEnabled(false)
+      hideCustomCountdownBtn:SetEnabled(false)
+      searchCustomSecEdit:SetEnabled(false)
+      searchCustomCountdownBtn:SetEnabled(false)
     elseif inRound then
       randGameHouseBtn:SetEnabled(false)
       viewGameHousePickBtn:SetEnabled(false)
@@ -879,17 +1158,20 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       randSeekerBtn:SetEnabled(false)
       selectSeekerBtn:SetEnabled(false)
       startRoundBtn:SetEnabled(false)
-      local rp = State.roundPhase
-      local hideOn = mayAct and rp == "pending"
-      local searchOn = mayAct and rp == "hiding"
-      local endOn = mayAct and (rp == "pending" or rp == "hiding" or rp == "searching")
+      local hideOn = mayAct and State.phase == Phase.PENDING
+      local searchOn = mayAct and State.phase == Phase.HIDING
+      local revealOn = mayAct and State.phase == Phase.SEARCHING
       for _, b in ipairs(hidePresetBtns) do
         b:SetEnabled(hideOn)
       end
       for _, b in ipairs(searchPresetBtns) do
         b:SetEnabled(searchOn)
       end
-      endRoundBtn:SetEnabled(endOn)
+      revealBtn:SetEnabled(revealOn)
+      hideCustomSecEdit:SetEnabled(hideOn)
+      hideCustomCountdownBtn:SetEnabled(hideOn)
+      searchCustomSecEdit:SetEnabled(searchOn)
+      searchCustomCountdownBtn:SetEnabled(searchOn)
     else
       randGameHouseBtn:SetEnabled(false)
       viewGameHousePickBtn:SetEnabled(false)
@@ -903,7 +1185,12 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       for _, b in ipairs(searchPresetBtns) do
         b:SetEnabled(false)
       end
-      endRoundBtn:SetEnabled(false)
+      revealBtn:SetEnabled(false)
+
+      hideCustomSecEdit:SetEnabled(false)
+      hideCustomCountdownBtn:SetEnabled(false)
+      searchCustomSecEdit:SetEnabled(false)
+      searchCustomCountdownBtn:SetEnabled(false)
     end
 
     if sess then
@@ -925,17 +1212,58 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       if inRound then
         hideRowLbl:ClearAllPoints()
         hideRowLbl:SetPoint("TOPLEFT", lockedRoundHouseLbl, "BOTTOMLEFT", 0, -12)
+        hidePresetBtns[1]:ClearAllPoints()
+        hidePresetBtns[1]:SetPoint("TOPLEFT", hideRowLbl, "BOTTOMLEFT", 0, -6)
+        hidePresetBtns[2]:ClearAllPoints()
+        hidePresetBtns[2]:SetPoint("LEFT", hidePresetBtns[1], "RIGHT", 8, 0)
+        hidePresetBtns[3]:ClearAllPoints()
+        hidePresetBtns[3]:SetPoint("TOPLEFT", hidePresetBtns[1], "BOTTOMLEFT", 0, -6)
+        hidePresetBtns[4]:ClearAllPoints()
+        hidePresetBtns[4]:SetPoint("LEFT", hidePresetBtns[3], "RIGHT", 8, 0)
+        hideCustomSecEdit:ClearAllPoints()
+        hideCustomSecEdit:SetPoint("TOPLEFT", hidePresetBtns[3], "BOTTOMLEFT", 0, -6)
+        hideCustomCountdownBtn:ClearAllPoints()
+        hideCustomCountdownBtn:SetPoint("LEFT", hideCustomSecEdit, "RIGHT", 8, 0)
+        searchRowLbl:ClearAllPoints()
+        if showHidePhaseRow then
+          searchRowLbl:SetPoint("TOPLEFT", hideCustomSecEdit, "BOTTOMLEFT", 0, -12)
+        else
+          searchRowLbl:SetPoint("TOPLEFT", lockedRoundHouseLbl, "BOTTOMLEFT", 0, -12)
+        end
+        searchPresetBtns[1]:ClearAllPoints()
+        searchPresetBtns[1]:SetPoint("TOPLEFT", searchRowLbl, "BOTTOMLEFT", 0, -6)
+        searchPresetBtns[2]:ClearAllPoints()
+        searchPresetBtns[2]:SetPoint("LEFT", searchPresetBtns[1], "RIGHT", 8, 0)
+        searchPresetBtns[3]:ClearAllPoints()
+        searchPresetBtns[3]:SetPoint("TOPLEFT", searchPresetBtns[1], "BOTTOMLEFT", 0, -6)
+        searchPresetBtns[4]:ClearAllPoints()
+        searchPresetBtns[4]:SetPoint("LEFT", searchPresetBtns[3], "RIGHT", 8, 0)
+        searchCustomSecEdit:ClearAllPoints()
+        searchCustomSecEdit:SetPoint("TOPLEFT", searchPresetBtns[3], "BOTTOMLEFT", 0, -6)
+        searchCustomCountdownBtn:ClearAllPoints()
+        searchCustomCountdownBtn:SetPoint("LEFT", searchCustomSecEdit, "RIGHT", 8, 0)
+        revealRowLbl:ClearAllPoints()
+        -- During SEARCHING the house section is hidden; anchor directly below session buttons.
+        if showRevealPhaseRow then
+          revealRowLbl:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", 0, -12)
+        else
+          revealRowLbl:SetPoint("TOPLEFT", lockedRoundHouseLbl, "BOTTOMLEFT", 0, -12)
+        end
+        revealBtn:ClearAllPoints()
+        revealBtn:SetPoint("TOPLEFT", revealRowLbl, "BOTTOMLEFT", 0, -6)
       else
         hideRowLbl:ClearAllPoints()
         if pickSeeker then
           hideRowLbl:SetPoint("TOPLEFT", startRoundBtn, "BOTTOMLEFT", 0, -12)
+        elseif pickHouse and State.gameSessionHouseListSource == nil then
+          hideRowLbl:SetPoint("TOPLEFT", sessionListGroupBtn, "BOTTOMLEFT", 0, -12)
         else
           hideRowLbl:SetPoint("TOPLEFT", randSeekerBtn, "BOTTOMLEFT", 0, -12)
         end
       end
     else
       seekerSelectHdr:ClearAllPoints()
-      seekerSelectHdr:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -12)
+      seekerSelectHdr:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", 0, -12)
       candidateSeekerLbl:ClearAllPoints()
       candidateSeekerLbl:SetPoint("TOPLEFT", seekerSelectHdr, "BOTTOMLEFT", 0, -4)
       randSeekerBtn:ClearAllPoints()
@@ -946,37 +1274,52 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       hideRowLbl:SetPoint("TOPLEFT", randSeekerBtn, "BOTTOMLEFT", 0, -12)
     end
 
-    -- Anchor the divider + “rest of UI” to the left column so housing/options stay aligned with the panel edge.
-    local layoutAnchor = sessionToggleBtn
-    if sess then
-      if inRound then
-        layoutAnchor = endRoundBtn
-      elseif pickSeeker then
-        layoutAnchor = startRoundBtn
-      elseif pickHouse then
-        layoutAnchor = confirmGameHouseBtn
-      else
-        layoutAnchor = randSeekerBtn
-      end
-    end
-    layoutGameplayBlock(layoutAnchor, 0, -16, true)
-    layoutGameplayDetailsFooter(B.nhsSessionHudIsActive())
+    -- houseSelectHdr always anchors directly below the session button row (endRoundBtn).
+    -- During pickGameMode, gameModeHdr is re-anchored below lockedRoundHouseLbl so
+    -- the confirmed house info appears above the game mode buttons.
+    houseSelectHdr:ClearAllPoints()
+    houseSelectHdr:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", 0, -12)
 
-    local phaseLine = gameplayPhaseLine()
-    if phaseLine then
-      roundPhaseLabel:SetWidth(328)
-      roundPhaseLabel:SetText(phaseLine)
-      roundPhaseLabel:Show()
+    gameModeHdr:ClearAllPoints()
+    if pickGameMode then
+      gameModeHdr:SetPoint("TOPLEFT", lockedRoundHouseLbl, "BOTTOMLEFT", 0, -12)
     else
-      roundPhaseLabel:Hide()
+      gameModeHdr:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", 0, -12)
     end
-    syncGameplayHouseSeekerLabels()
-    refreshFoundList()
 
+    -- Re-anchor divControlOptions below the lowest visible control element.
+    do
+      local anchor = sessionToggleBtn
+      if sess then
+        if inRound then
+          -- endRoundBtn is now above the controls; anchor to the lowest visible timer control.
+          if showRevealPhaseRow then
+            anchor = revealBtn
+          elseif showSearchPhaseRow then
+            anchor = searchCustomSecEdit
+          elseif showHidePhaseRow then
+            anchor = hideCustomSecEdit
+          else -- Revealing: no timer controls, house section hidden; End Round is the only element.
+            anchor = endRoundBtn
+          end
+        elseif pickGameMode then
+          anchor = gameModeLightningBtn  -- bottom row of game mode buttons
+        elseif pickSeeker then
+          anchor = startRoundBtn
+        elseif pickHouse then
+          if State.gameSessionHouseListSource == nil then
+            anchor = sessionListGroupBtn
+          else
+            anchor = confirmGameHouseBtn
+          end
+        else
+          anchor = randSeekerBtn
+        end
+      end
+      divControlOptions:ClearAllPoints()
+      divControlOptions:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", -8, -10)
+    end
     selectSeekerBtn:SetEnabled(pickSeeker and mayAct)
-    viewPastGameHousesBtn:SetEnabled(sess and #State.gameHouseHistory > 0)
-    viewPastSeekersBtn:SetEnabled(sess and #State.gameSeekerHistory > 0)
-    pastRoundsBtn:SetEnabled(sess and #State.pastRounds > 0)
     syncSeekerUiOptionsFromSaved()
     local hlIdx = NeighborhoodHideSeek.SavedHouses.GetSavedPresetIndexForEntry(State.selectedEntry)
     if not hlIdx and State.gameLockedHouseKey then
@@ -993,6 +1336,38 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   function UI.RefreshGameRounds()
     refreshGameRounds()
   end
+
+  local function nhsTryCommitSessionHouseListSource(source, label)
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_HOUSE then
+      return
+    end
+    if State.gameSessionHouseListSource ~= nil then
+      return
+    end
+    State.gameSessionHouseListSource = source
+    print(("|cff88ccff[NHS]|r Session house list: %s."):format(label))
+    B.nhsPersistGameSessionToSaved()
+    refreshGameRounds()
+  end
+
+  sessionListNeighborhoodBtn:SetScript("OnClick", function()
+    if not sessionListNeighborhoodBtn:IsEnabled() then
+      return
+    end
+    nhsTryCommitSessionHouseListSource("neighborhood", "neighborhood")
+  end)
+  sessionListSavedBtn:SetScript("OnClick", function()
+    if not sessionListSavedBtn:IsEnabled() then
+      return
+    end
+    nhsTryCommitSessionHouseListSource("saved", "saved list")
+  end)
+  sessionListGroupBtn:SetScript("OnClick", function()
+    if not sessionListGroupBtn:IsEnabled() then
+      return
+    end
+    nhsTryCommitSessionHouseListSource("group", "group members")
+  end)
 
   for _, b in ipairs(houseSizePresetBtns) do
     b:SetScript("OnClick", function(self)
@@ -1038,7 +1413,6 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end)
 
   function UI.RefreshFound()
-    refreshFoundList()
     if B.nhsSessionHudUpdate then
       B.nhsSessionHudUpdate()
     end
@@ -1057,17 +1431,11 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
         or "Selected House: (none)"
     )
     updateMainHouseSizeLine()
-    refreshFoundList()
     refreshGameRounds()
     if B.nhsSessionHudUpdate then
       B.nhsSessionHudUpdate()
     end
   end
-
-  viewPastSeekersBtn:SetScript("OnClick", function()
-    refreshPastSeekersPanel()
-    psf:Show()
-  end)
 
   orphanSessionBtn:SetScript("OnClick", function()
     if not (State.gameSessionActive and IsInGroup() and not B.nhsIsRoundLeader()) then
@@ -1092,7 +1460,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       return
     end
     State.gameSessionActive = true
-    State.gamePhase = "pick_house"
+    State.phase = Phase.PICK_HOUSE
+    State.gameMode = nil
+    State.gameSessionHouseListSource = nil
     State.gameHouseCandidateKey = nil
     State.gameHouseCandidateDisplay = nil
     State.gameLockedHouseKey = nil
@@ -1101,26 +1471,104 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     State.gameLockedHouseLiveIndex = nil
     wipe(State.gameHouseHistory)
     wipe(State.gameHouseRotationUsed)
-    State.gameCandidateKey = nil
-    State.gameCandidateDisplay = nil
-    State.gameLockedSeekerKey = nil
-    State.gameLockedSeekerDisplay = nil
+    wipe(State.gameCandidateKeys)
+    wipe(State.gameLockedSeekerKeys)
     wipe(State.gameSeekerHistory)
     wipe(State.gameRotationUsed)
     wipe(State.pastRounds)
+    if NHS.ClearCompletedPastRoundsArchive then
+      NHS.ClearCompletedPastRoundsArchive()
+    end
+    refreshHouseList()
     B.nhsPersistGameSessionToSaved()
     if IsInGroup() and B.nhsIsRoundLeader() then
       B.nhsBroadcastLeaderSync(B.NHS_MSG_SESSION_START)
     end
     print(
-      "|cff88ccff[NHS]|r Game session started. Pick a house (random or list), confirm, then choose the seeker."
+      "|cff88ccff[NHS]|r Game session started. Choose a house list and confirm a house, then pick a game mode."
     )
     refreshGameRounds()
   end)
 
-  local function nhsOpenSeekerAnimatedRandomPick(hideSeekerListFrame)
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_seeker" then
+  local function nhsLeaderSelectGameMode(modeId)
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_GAME_MODE then
       return
+    end
+    if not NHS.IsValidGameMode or not NHS.IsValidGameMode(modeId) then
+      return
+    end
+    State.gameMode = modeId
+    State.phase = Phase.PICK_SEEKER
+    local label = NHS.GameModeHudLabel and NHS.GameModeHudLabel(modeId) or modeId
+    if IsInGroup() and B.nhsIsRoundLeader() then
+      B.nhsBroadcastLeaderGameMode(modeId)
+    end
+    print(("|cff88ccff[NHS]|r Game mode: |cffffffff%s|r — pick a seeker."):format(label))
+    B.nhsPersistGameSessionToSaved()
+    if NHS.SyncHiddenRangePoll then
+      NHS.SyncHiddenRangePoll()
+    end
+    refreshGameRounds()
+  end
+
+  -- Game Mode Selection
+
+  gameModeNormalBtn:SetScript("OnClick", function()
+    nhsLeaderSelectGameMode("normal")
+  end)
+
+  gameModeNormalPlusBtn:SetScript("OnClick", function()
+    nhsLeaderSelectGameMode("normal_plus")
+  end)
+
+  gameModeHotColdBtn:SetScript("OnClick", function()
+    nhsLeaderSelectGameMode("hot_cold")
+  end)
+
+  gameModePairedBtn:SetScript("OnClick", function()
+    nhsLeaderSelectGameMode("paired")
+  end)
+
+  gameModeConquerBtn:SetScript("OnClick", function()
+    nhsLeaderSelectGameMode("conquer")
+  end)
+
+  gameModeChosenOneBtn:SetScript("OnClick", function()
+    nhsLeaderSelectGameMode("chosen_one")
+  end)
+
+  gameModeLightningBtn:SetScript("OnClick", function()
+    nhsLeaderSelectGameMode("lightning")
+  end)
+
+  gameModeRandomBtn:SetScript("OnClick", function()
+    nhsLeaderSelectGameMode("random") -- This needs to randomly select a game mode from the list of game modes
+  end)
+
+  gameplayGroupCatchUpBtn:SetScript("OnClick", function()
+    if not B.nhsLeaderBroadcastGameplayCatchUpSync then
+      print("|cffff8800[NHS]|r Group sync is not ready yet.")
+      return
+    end
+    local ok, err = B.nhsLeaderBroadcastGameplayCatchUpSync()
+    if ok then
+      print("|cff88ccff[NHS]|r Group catch-up sync sent to party/raid (addon).")
+      if UI.RefreshAll then
+        UI.RefreshAll()
+      end
+    else
+      print("|cffff8800[NHS]|r " .. tostring(err))
+    end
+  end)
+
+  local function nhsOpenSeekerAnimatedRandomPick(hideSeekerListFrame)
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_SEEKER then
+      return
+    end
+    local required = B.nhsGetRequiredSeekerCount and B.nhsGetRequiredSeekerCount() or 1
+    -- If the list is already full, clear it so the player can start a fresh pick.
+    if #State.gameCandidateKeys >= required then
+      wipe(State.gameCandidateKeys)
     end
     local elig, err = B.nhsRandomSeekerEligible()
     if not elig then
@@ -1130,18 +1578,49 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     if hideSeekerListFrame then
       gsfp:Hide()
     end
-    randomPickAnim.openAnimated("seeker", "Random seeker (eligible this rotation)", elig, function(winIdx)
+    local isHiderMode = NHS.IsHiderMode and NHS.IsHiderMode()
+    local slotNum = #State.gameCandidateKeys + 1
+    local animTitle
+    if isHiderMode then
+      animTitle = "Random hider (eligible this rotation)"
+    elseif required > 1 then
+      animTitle = ("Random seeker %d/%d (eligible this rotation)"):format(slotNum, required)
+    else
+      animTitle = "Random seeker (eligible this rotation)"
+    end
+    randomPickAnim.openAnimated("seeker", animTitle, elig, function(winIdx)
       local m = elig[winIdx]
       if not m then
         return
       end
-      State.gameCandidateKey = m.key
-      State.gameCandidateDisplay = m.display
-      print(
-        ("|cff88ccff[NHS]|r Seeker pick: |cffffffff%s|r — Confirm seeker to lock in (or random again)."):format(
-          m.display
+      State.gameCandidateKeys[#State.gameCandidateKeys + 1] = m.key
+      local names = {}
+      for _, k in ipairs(State.gameCandidateKeys) do
+        names[#names + 1] = Ambiguate(k, "short")
+      end
+      local nameStr = table.concat(names, ", ")
+      if required > 1 then
+        local remaining = required - #State.gameCandidateKeys
+        if remaining > 0 then
+          print(
+            ("|cff88ccff[NHS]|r Seeker %d/%d: |cffffffff%s|r — pick %d more."):format(
+              #State.gameCandidateKeys, required, nameStr, remaining
+            )
+          )
+        else
+          print(
+            ("|cff88ccff[NHS]|r Seekers (%d/%d): |cffffffff%s|r — Confirm seekers to lock in."):format(
+              #State.gameCandidateKeys, required, nameStr
+            )
+          )
+        end
+      else
+        print(
+          ("|cff88ccff[NHS]|r %s pick: |cffffffff%s|r — Confirm %s to lock in (or random again)."):format(
+            isHiderMode and "Hider" or "Seeker", m.display, isHiderMode and "hider" or "seeker"
+          )
         )
-      )
+      end
       B.nhsPersistGameSessionToSaved()
       refreshGameRounds()
     end)
@@ -1152,20 +1631,23 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end)
 
   randGameHouseBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_house" then
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_HOUSE then
       return
     end
-    NHS.EnsureSavedVars()
-    if NHSV.selectHouseFromSavedList ~= false then
-      -- saved list: no API needed
-    elseif not NeighborhoodHideSeek.HousingApi.Available() then
-      print("|cffff8800[NHS]|r Housing API not ready — open the neighborhood or use saved list in Options.")
+    local src = State.gameSessionHouseListSource
+    if not src then
       return
     end
-    if NHSV.selectHouseFromSavedList == false and #housesCache == 0 then
-      refreshHouseList()
+    if src == "neighborhood" then
+      if not NeighborhoodHideSeek.HousingApi.Available() then
+        print("|cffff8800[NHS]|r Housing API not ready — open the neighborhood map or pick a different session list.")
+        return
+      end
+      if #housesCache == 0 then
+        refreshHouseList()
+      end
     end
-    local elig, err = NeighborhoodHideSeek.SavedHouses.GameplayRandomHouseEligible(housesCache)
+    local elig, err = NeighborhoodHideSeek.SavedHouses.GameplayRandomHouseEligible(housesCache, src)
     if not elig then
       print("|cffff8800[NHS]|r " .. tostring(err))
       return
@@ -1188,11 +1670,14 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end)
 
   viewGameHousePickBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_house" then
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_HOUSE then
       return
     end
-    NHS.EnsureSavedVars()
-    if NHSV.selectHouseFromSavedList == false then
+    local src = State.gameSessionHouseListSource
+    if not src then
+      return
+    end
+    if src == "neighborhood" then
       if not NeighborhoodHideSeek.HousingApi.Available() then
         print("|cffff8800[NHS]|r Housing API not ready.")
         return
@@ -1204,7 +1689,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end)
 
   confirmGameHouseBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_house" then
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_HOUSE then
       return
     end
     if not State.gameHouseCandidateKey then
@@ -1216,7 +1701,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     State.gameHouseHistory[#State.gameHouseHistory + 1] = State.gameLockedHouseDisplay
     State.gameHouseCandidateKey = nil
     State.gameHouseCandidateDisplay = nil
-    State.gamePhase = "pick_seeker"
+    State.phase = Phase.PICK_GAME_MODE
     if IsInGroup() and B.nhsIsRoundLeader() then
       B.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay)
       B.nhsBroadcastGameplayHousePin(
@@ -1227,7 +1712,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       )
     end
     print(
-      ("|cff88ccff[NHS]|r House locked for this round: |cffffffff%s|r — pick a seeker."):format(
+      ("|cff88ccff[NHS]|r House locked for this round: |cffffffff%s|r — pick a game mode."):format(
         State.gameLockedHouseDisplay
       )
     )
@@ -1235,37 +1720,34 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     refreshGameRounds()
   end)
 
-  viewPastGameHousesBtn:SetScript("OnClick", function()
-    refreshGameplayPastHousesPanel()
-    ghpf:Show()
-  end)
-
-  pastRoundsBtn:SetScript("OnClick", function()
-    refreshPastRoundsPanel()
-    pastRoundsFrame:Show()
-  end)
-
   randSeekerBtn:SetScript("OnClick", function()
     nhsOpenSeekerAnimatedRandomPick(false)
   end)
 
   selectSeekerBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_seeker" then
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_SEEKER then
       return
     end
     if #B.nhsGetGroupRoster() == 0 then
       print("|cffff8800[NHS]|r No players in group.")
       return
     end
+    local required = B.nhsGetRequiredSeekerCount and B.nhsGetRequiredSeekerCount() or 1
+    -- If the list is already full, clear it so the player can start a fresh pick.
+    if #State.gameCandidateKeys >= required then
+      wipe(State.gameCandidateKeys)
+      refreshGameRounds()
+    end
     refreshGroupSeekerPickList()
     gsfp:Show()
   end)
 
   startRoundBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.gamePhase ~= "pick_seeker" then
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_SEEKER then
       return
     end
-    if not State.gameCandidateKey then
+    local required = B.nhsGetRequiredSeekerCount and B.nhsGetRequiredSeekerCount() or 1
+    if #State.gameCandidateKeys ~= required then
       return
     end
     if not State.gameLockedHouseDisplay then
@@ -1273,55 +1755,168 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       return
     end
     B.clearFound()
-    State.gameRotationUsed[State.gameCandidateKey] = true
-    State.gameSeekerHistory[#State.gameSeekerHistory + 1] = State.gameCandidateDisplay
-    State.gameLockedSeekerKey = State.gameCandidateKey
-    State.gameLockedSeekerDisplay = State.gameCandidateDisplay
-    State.gameCandidateKey = nil
-    State.gameCandidateDisplay = nil
-    State.gamePhase = "round_active"
-    State.roundPhase = "pending"
-    B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_START .. tostring(State.gameLockedSeekerKey))
-    print(
-      ("|cff88ccff[NHS]|r Round started. |cffffffff%s|r is the seeker."):format(State.gameLockedSeekerDisplay)
-    )
+    wipe(State.gameLockedSeekerKeys)
+    if NHS.IsHiderMode and NHS.IsHiderMode() then
+      -- Hider mode (e.g. Chosen One): candidate is the hider; everyone else in the roster becomes a seeker.
+      local hiderKey = State.gameCandidateKeys[1]
+      State.gameRotationUsed[hiderKey] = true
+      local roster = B.nhsGetGroupRoster()
+      for _, m in ipairs(roster) do
+        if m.key ~= hiderKey then
+          State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = m.key
+        end
+      end
+      local hiderName = Ambiguate(hiderKey, "short")
+      State.gameSeekerHistory[#State.gameSeekerHistory + 1] = "Hider: " .. hiderName
+      wipe(State.gameCandidateKeys)
+      State.phase = Phase.PENDING
+      local keyStr = table.concat(State.gameLockedSeekerKeys, ",")
+      B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_START .. keyStr)
+      print(("|cff88ccff[NHS]|r Round started. |cffffffff%s|r is the hider."):format(hiderName))
+    else
+      -- Normal mode: lock in all candidates as seekers.
+      local names = {}
+      for _, k in ipairs(State.gameCandidateKeys) do
+        State.gameRotationUsed[k] = true
+        State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = k
+        names[#names + 1] = Ambiguate(k, "short")
+      end
+      State.gameSeekerHistory[#State.gameSeekerHistory + 1] = table.concat(names, ", ")
+      wipe(State.gameCandidateKeys)
+      State.phase = Phase.PENDING
+      local keyStr = table.concat(State.gameLockedSeekerKeys, ",")
+      B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_START .. keyStr)
+      local nameStr = table.concat(names, ", ")
+      if #State.gameLockedSeekerKeys > 1 then
+        print(("|cff88ccff[NHS]|r Round started. Seekers: |cffffffff%s|r."):format(nameStr))
+      else
+        print(("|cff88ccff[NHS]|r Round started. |cffffffff%s|r is the seeker."):format(nameStr))
+      end
+    end
     B.nhsPersistGameSessionToSaved()
     refreshGameRounds()
   end)
 
+  local function nhsLeaderBroadcastRoundPhase(phase)
+    if phase == Phase.HIDING then
+      State.phase = Phase.HIDING
+      B.nhsBroadcastLeaderSync(B.NHS_MSG_HIDING)
+      if NHS.PlayHidingPhaseStartSound then
+        NHS.PlayHidingPhaseStartSound()
+      end
+    elseif phase == Phase.SEARCHING then
+      State.phase = Phase.SEARCHING
+      local keyParts = {}
+      for _, k in ipairs(State.gameLockedSeekerKeys) do
+        if type(k) == "string" and k ~= "" then
+          keyParts[#keyParts + 1] = k
+        end
+      end
+      if #keyParts > 0 then
+        B.nhsBroadcastLeaderSync(B.NHS_MSG_SEEKING .. table.concat(keyParts, ","))
+      else
+        B.nhsBroadcastLeaderSync("[NHS] The Seeking Begins!")
+      end
+      B.nhsLeaderTryPromoteSeekerForRaidWarn()
+    elseif phase == Phase.REVEALING then
+      State.phase = Phase.REVEALING
+      do
+        -- Build congratulatory chat message: praise surviving hiders, or the seeker(s) if all found.
+        local seekerSet = {}
+        for _, k in ipairs(State.gameLockedSeekerKeys) do seekerSet[k] = true end
+        local hiderNames = {}
+        for _, m in ipairs(B.nhsGetGroupRoster()) do
+          if not seekerSet[m.key] and not State.foundSet[m.key] then
+            hiderNames[#hiderNames + 1] = Ambiguate(m.key, "short")
+          end
+        end
+        table.sort(hiderNames)
+        local function nameList(names)
+          local n = #names
+          if n == 0 then return "" end
+          if n == 1 then return names[1] end
+          if n == 2 then return names[1] .. " and " .. names[2] end
+          local t = {}
+          for i = 1, n - 1 do t[i] = names[i] end
+          return table.concat(t, ", ") .. ", and " .. names[n]
+        end
+        local chatMsg
+        if #hiderNames > 0 then
+          chatMsg = B.NHS_MSG_REVEALING .. " Congratulations to " .. nameList(hiderNames) .. " for staying hidden!"
+        else
+          local seekerNames = {}
+          for _, k in ipairs(State.gameLockedSeekerKeys) do
+            seekerNames[#seekerNames + 1] = Ambiguate(k, "short")
+          end
+          chatMsg = B.NHS_MSG_REVEALING .. " " .. nameList(seekerNames) .. " found everyone!"
+        end
+        if B.nhsBroadcastRevealingPhase then
+          B.nhsBroadcastRevealingPhase(chatMsg)
+        else
+          B.nhsBroadcastLeaderSync(B.NHS_MSG_REVEALING)
+        end
+      end
+      B.nhsLeaderDemoteSeekerAssistantIfWePromoted()
+      if State.seekerMode and B.setSeekerMode then
+        B.setSeekerMode(false)
+      end
+    end
+    if NHS.SyncHiddenRangePoll then
+      NHS.SyncHiddenRangePoll()
+    end
+  end
+
   local function onPresetCountdownClick(self)
-    if not B.nhsMayUseLeaderGameActions() or State.gamePhase ~= "round_active" then
+    if not B.nhsMayUseLeaderGameActions() or not (State.gameSessionActive and IsRoundPhase(State.phase)) then
       return
     end
-    local idx = self._presetIdx
-    local pr = NHS.ROUND_PRESETS[idx]
-    local sec = (self._kind == "hide") and pr.hideSec or pr.searchSec
-    local ok, err = B.nhsStartBuiltInCountdown(sec)
-    if ok then
-      local phaseLabel = (self._kind == "hide") and "Hiding" or "Searching"
+    local sec
+    local presetName
+    if self._isCustom then
+      local eb = self._secEdit
+      sec = math.floor(tonumber(eb and eb:GetText() or "") or 0)
+      if sec < 1 or sec > 7200 then
+        print("|cffff8800[NHS]|r Enter seconds between 1 and 7200 (up to 2 hours).")
+        return
+      end
+      presetName = "Custom"
+    else
+      local idx = self._presetIdx
+      local pr = NHS.ROUND_PRESETS[idx]
+      if not pr then
+        return
+      end
+      presetName = pr.label
       if self._kind == "hide" then
-        State.roundPhase = "hiding"
-        if State.gameLockedSeekerKey then
-          B.nhsBroadcastLeaderSync(B.NHS_MSG_HIDING .. State.gameLockedSeekerKey)
+        sec = pr.hideSec
+        if NHS.GetRoundHideSeconds then
+          sec = NHS.GetRoundHideSeconds(pr.hideSec)
         end
       else
-        State.roundPhase = "searching"
-        if State.gameLockedSeekerKey then
-          B.nhsBroadcastLeaderSync(B.NHS_MSG_SEEKING .. State.gameLockedSeekerKey)
+        sec = pr.searchSec
+        if NHS.GetRoundSearchSeconds then
+          sec = NHS.GetRoundSearchSeconds(pr.searchSec)
         end
-        B.nhsLeaderTryPromoteSeekerForRaidWarn()
       end
-      print(
-        ("|cff88ccff[NHS]|r %s — %s (%d s)."):format(phaseLabel, pr.label, sec)
-      )
-      if UI.RefreshAll then
-        UI.RefreshAll()
-      end
-      B.nhsSeekerAutoModeSyncToPhase()
-      B.nhsPersistGameSessionToSaved()
-    else
-      print("|cffff8800[NHS]|r " .. tostring(err))
     end
+    -- Phase transition happens unconditionally; the Blizzard countdown is cosmetic only.
+    -- Some addons (e.g. BigWigs) hook C_PartyInfo.DoCountdown without passing through its
+    -- return value, which would otherwise block the phase from advancing.
+    local targetPhase = self._kind == "hide" and Phase.HIDING or Phase.SEARCHING
+    local phaseLabel  = self._kind == "hide" and "Hiding" or "Searching"
+    nhsLeaderBroadcastRoundPhase(targetPhase)
+    print(("|cff88ccff[NHS]|r %s — %s (%d s)."):format(phaseLabel, presetName, sec))
+    local ok, err = B.nhsStartBuiltInCountdown(sec)
+    if not ok then
+      if NHS.debugSync then
+        print(("|cffffcc00[NHS] debugsync|r Countdown returned: ok=%s err=%s"):format(tostring(ok), tostring(err)))
+      end
+    end
+    if UI.RefreshAll then
+      UI.RefreshAll()
+    end
+    B.nhsSeekerAutoModeSyncToPhase()
+    B.nhsPersistGameSessionToSaved()
   end
 
   for _, b in ipairs(hidePresetBtns) do
@@ -1330,38 +1925,105 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   for _, b in ipairs(searchPresetBtns) do
     b:SetScript("OnClick", onPresetCountdownClick)
   end
+  hideCustomCountdownBtn:SetScript("OnClick", onPresetCountdownClick)
+  searchCustomCountdownBtn:SetScript("OnClick", onPresetCountdownClick)
 
-  endRoundBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or State.gamePhase ~= "round_active" then
+  revealBtn:SetScript("OnClick", function()
+    if not B.nhsMayUseLeaderGameActions() or not (State.gameSessionActive and IsRoundPhase(State.phase)) then
+      return
+    end
+    if State.phase ~= Phase.SEARCHING then
+      return
+    end
+    B.nhsStopPartyCountdown()
+    nhsLeaderBroadcastRoundPhase(Phase.REVEALING)
+    print("|cff88ccff[NHS]|r Revealing phase started — hiders, show yourselves!")
+    if UI.RefreshAll then
+      UI.RefreshAll()
+    end
+    B.nhsPersistGameSessionToSaved()
+  end)
+
+  local function nhsDoEndRound()
+    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive
+      or State.phase == Phase.PICK_HOUSE then
       return
     end
     B.nhsAppendPastRoundSnapshotIfActiveRound()
     B.nhsLeaderDemoteSeekerAssistantIfWePromoted()
-    State.gamePhase = "pick_house"
+    if NHS.ClearRoundGameMode then
+      NHS.ClearRoundGameMode()
+    else
+      State.gameMode = nil
+    end
+    State.phase = Phase.PICK_HOUSE
     State.gameHouseCandidateKey = nil
     State.gameHouseCandidateDisplay = nil
     State.gameLockedHouseKey = nil
     State.gameLockedHouseDisplay = nil
     State.gameLockedHouseLiveEntry = nil
     State.gameLockedHouseLiveIndex = nil
-    State.gameLockedSeekerKey = nil
-    State.gameLockedSeekerDisplay = nil
-    State.gameCandidateKey = nil
-    State.gameCandidateDisplay = nil
-    State.roundPhase = "none"
+    wipe(State.gameLockedSeekerKeys)
+    wipe(State.gameCandidateKeys)
     B.clearFound()
     B.nhsStopPartyCountdown()
     B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_OVER)
-    print("|cff88ccff[NHS]|r Round ended. Pick the next house, then the next seeker.")
+    print("|cff88ccff[NHS]|r Round ended. Pick the next house, then a game mode and seeker.")
     B.nhsPersistGameSessionToSaved()
     if State.seekerMode then
       B.setSeekerMode(false)
     end
     refreshGameRounds()
-  end)
+  end
+
+  endRoundBtn:SetScript("OnClick", nhsDoEndRound)
 
   refreshBtn:SetScript("OnClick", function()
     refreshHouseList()
+  end)
+
+  updateSavedListBtn:SetScript("OnClick", function()
+    local S = NHS.SavedHouses
+    -- Collect matches before modifying NHSV (SetSavedPresetForEntry mutates the table).
+    -- Require both stable key (plot ID / GUID) AND label (plot number + character name) to
+    -- match so that a different occupant at the same plot ID in another neighborhood is never
+    -- treated as the same house.
+    local matches = {}
+    for i, entry in ipairs(housesCache) do
+      local stable = S.StableKeyFromEntry(entry)
+      if stable then
+        local liveLabel = NHS.LabelFromEntry(entry, i)
+        for savedKey in pairs(NHSV.houseSizes) do
+          if S.BaseStableKeyFromPersistenceKey(savedKey) == stable then
+            local savedLabel = NHSV.houseLabels[savedKey]
+            if type(savedLabel) == "string" and savedLabel == liveLabel then
+              matches[#matches + 1] = {
+                entry = entry,
+                index = i,
+                savedKey = savedKey,
+              }
+              break
+            end
+          end
+        end
+      end
+    end
+    local updated = 0
+    for _, m in ipairs(matches) do
+      if S.MigrateSavedEntryToCurrentContext(m.savedKey, m.entry, m.index) then
+        updated = updated + 1
+      end
+    end
+    if updated > 0 then
+      print(("|cff88ff88[NHS]|r Updated %d saved house(s) with current neighborhood data."):format(updated))
+      updateHouseListButtonLabels()
+      refreshSavedHousesPanel()
+      if UI.RefreshGameRounds then
+        UI.RefreshGameRounds()
+      end
+    else
+      print("|cffff8800[NHS]|r No saved houses matched the current neighborhood.")
+    end
   end)
 
   pinBtn:SetScript("OnClick", function()
@@ -1459,6 +2121,18 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   htpf:SetFrameLevel(207)
   htpf:SetToplevel(true)
 
+  gmif:ClearAllPoints()
+  if NHSV.gameModesInfoFramePoint then
+    local hp = NHSV.gameModesInfoFramePoint
+    gmif:SetPoint(hp[1], UIParent, hp[2], hp[3], hp[4])
+  else
+    gmif:SetPoint("TOP", f, "TOP", 0, -24)
+  end
+  gmif:SetFrameStrata("DIALOG")
+  gmif:SetFrameLevel(207)
+  gmif:SetToplevel(true)
+
+
   shf:ClearAllPoints()
   if NHSV.savedSizesFramePoint then
     local sp = NHSV.savedSizesFramePoint
@@ -1534,11 +2208,15 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   UI.gameplaySeekerPickFrame = gsfp
   UI.gameplayRandomPickFrame = randomPickFrame
   UI.howToPlayFrame = htpf
+  UI.gameModesInfoFrame = gmif
   UI.savedSizesFrame = shf
   UI.viewHouseListBtn = viewHouseListBtn
   UI.frame = f
   syncHouseSizePickerEnabled()
   syncHouseListFrameHeight()
   B.nhsSessionHudUpdate()
-end
 
+  if NHS.RegisterEscapeProxyFrameHooks then
+    NHS.RegisterEscapeProxyFrameHooks(UI)
+  end
+end

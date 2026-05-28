@@ -32,8 +32,17 @@ local function ensureSavedVars()
   if type(NHSV.housePinCoords) ~= "table" then
     NHSV.housePinCoords = {}
   end
-  if NHSV.selectHouseFromSavedList == nil then
-    NHSV.selectHouseFromSavedList = true
+  if type(NHSV.houseNeighborhoodNames) ~= "table" then
+    NHSV.houseNeighborhoodNames = {}
+  end
+  if type(NHSV.houseSubdivisionNames) ~= "table" then
+    NHSV.houseSubdivisionNames = {}
+  end
+  if type(NHSV.savedHouseListSubdivision) ~= "string" then
+    NHSV.savedHouseListSubdivision = ""
+  end
+  if type(NHSV.neighborhoodSliceLabels) ~= "table" then
+    NHSV.neighborhoodSliceLabels = {}
   end
   if NHSV.useRandomPickAnimation == nil then
     if NHSV.useSpinnerRandomSelection ~= nil then
@@ -41,6 +50,15 @@ local function ensureSavedVars()
     else
       NHSV.useRandomPickAnimation = true
     end
+  end
+  if NHSV.gameplaySoundsEnabled == nil then
+    NHSV.gameplaySoundsEnabled = true
+  end
+  if NHSV.showMinimapButton == nil then
+    NHSV.showMinimapButton = true
+  end
+  if NHSV.suppressSeekerModeDialog == nil then
+    NHSV.suppressSeekerModeDialog = false
   end
 end
 

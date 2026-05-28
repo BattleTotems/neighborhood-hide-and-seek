@@ -69,7 +69,7 @@ function NHS.CreatePastRoundsFrame()
       pastRoundsBody:Show()
       pastRoundsBody:ClearAllPoints()
       pastRoundsBody:SetPoint("TOPLEFT", pastRoundsScrollChild, "TOPLEFT", 0, 0)
-      pastRoundsBody:SetText("No completed rounds recorded this session yet.")
+      pastRoundsBody:SetText("No completed rounds in the list yet.")
       pastRoundsScrollChild:SetHeight(math.max(pastRoundsBody:GetStringHeight() + 8, 1))
       pastRoundsScroll:SetVerticalScroll(0)
       return
@@ -109,14 +109,14 @@ function NHS.CreatePastRoundsFrame()
       fs:SetParent(pastRoundsScrollChild)
       fs:ClearAllPoints()
       fs:SetPoint("TOPLEFT", pastRoundsScrollChild, "TOPLEFT", 0, -y)
-      fs:SetText(
-        table.concat({
-          r.house or "",
-          r.seeker or "",
-          r.hidden or "",
-          r.found or "",
-        }, "\n")
-      )
+      local lines = { r.house or "" }
+      if r.mode and r.mode ~= "" then
+        lines[#lines + 1] = r.mode
+      end
+      lines[#lines + 1] = r.seeker or ""
+      lines[#lines + 1] = r.hidden or ""
+      lines[#lines + 1] = r.found or ""
+      fs:SetText(table.concat(lines, "\n"))
       fs:Show()
       y = y + fs:GetStringHeight()
     end

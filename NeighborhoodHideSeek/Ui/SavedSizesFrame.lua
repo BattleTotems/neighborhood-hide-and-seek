@@ -10,7 +10,7 @@ function NHS.CreateSavedSizesFrame(callbacks)
   callbacks = callbacks or {}
 
   local shf = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-  shf:SetSize(340, 380)
+  shf:SetSize(388, 380)
   shf:SetClampedToScreen(true)
   shf:SetMovable(true)
   shf:EnableMouse(true)
@@ -36,18 +36,18 @@ function NHS.CreateSavedSizesFrame(callbacks)
   local shfTitle = shf:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   shfTitle:SetPoint("TOP", 0, -14)
   shfTitle:SetText("Saved House Sizes")
-  local shfHelp = shf:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  local shfHelp = shf:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
   shfHelp:SetPoint("TOPLEFT", 16, -40)
-  shfHelp:SetWidth(308)
+  shfHelp:SetWidth(356)
   shfHelp:SetJustifyH("LEFT")
-  shfHelp:SetText("Click a row to remove that saved entry. Sizes persist in SavedVariables (NHSV).")
+  shfHelp:SetText("Click a row to |cffffd200remove|r that saved entry.")
   local shScroll = CreateFrame("ScrollFrame", nil, shf)
   shScroll:SetPoint("TOPLEFT", 16, -72)
-  shScroll:SetSize(308, 290)
+  shScroll:SetSize(356, 290)
   NHS.SetupScrollFrameMouseWheel(shScroll)
 
   local shScrollChild = CreateFrame("Frame", nil, shScroll)
-  shScrollChild:SetSize(308, 1)
+  shScrollChild:SetSize(356, 1)
   shScroll:SetScrollChild(shScrollChild)
   local shfCloseBtn = CreateFrame("Button", nil, shf, "UIPanelCloseButton")
   shfCloseBtn:SetPoint("TOPRIGHT", -6, -6)
@@ -69,6 +69,9 @@ function NHS.CreateSavedSizesFrame(callbacks)
           key = key,
           idx = idx,
           label = NHSV.houseLabels[key] or key,
+          hood = type(NHSV.houseNeighborhoodNames) == "table" and NHSV.houseNeighborhoodNames[key] or nil,
+          sub = NHS.SavedHouses.SliceDisplayLabelForSavedKey and NHS.SavedHouses.SliceDisplayLabelForSavedKey(key)
+            or nil,
           ord = n,
         }
       end
@@ -98,7 +101,7 @@ function NHS.CreateSavedSizesFrame(callbacks)
       local btn = savedHouseRowBtns[i]
       if not btn then
         btn = CreateFrame("Button", nil, shScrollChild, "UIPanelButtonTemplate")
-        btn:SetSize(292, 22)
+        btn:SetSize(340, 22)
         btn:SetScript("OnClick", function(self)
           local k = self._rowKey
           if not k then
@@ -108,6 +111,12 @@ function NHS.CreateSavedSizesFrame(callbacks)
           NHSV.houseSizes[k] = nil
           NHSV.houseLabels[k] = nil
           NHSV.housePinCoords[k] = nil
+          if type(NHSV.houseNeighborhoodNames) == "table" then
+            NHSV.houseNeighborhoodNames[k] = nil
+          end
+          if type(NHSV.houseSubdivisionNames) == "table" then
+            NHSV.houseSubdivisionNames[k] = nil
+          end
           refreshSavedHousesPanel()
           local fn = callbacks.afterRowRemove
           if fn then
@@ -117,7 +126,20 @@ function NHS.CreateSavedSizesFrame(callbacks)
         savedHouseRowBtns[i] = btn
       end
       btn._rowKey = row.key
-      btn:SetText(("%s — %s (Remove)"):format(row.label, NHS.ROUND_PRESETS[row.idx].label))
+      local prLab = NHS.ROUND_PRESETS[row.idx].label
+      local hood = type(row.hood) == "string" and row.hood ~= "" and row.hood or nil
+      local sub = type(row.sub) == "string" and row.sub ~= "" and row.sub or nil
+      local line
+      if hood and sub then
+        line = ("%s — %s — %s — %s"):format(row.label, hood, sub, prLab)
+      elseif hood then
+        line = ("%s — %s — %s"):format(row.label, hood, prLab)
+      elseif sub then
+        line = ("%s — %s — %s"):format(row.label, sub, prLab)
+      else
+        line = ("%s — %s"):format(row.label, prLab)
+      end
+      btn:SetText(line)
       btn:ClearAllPoints()
       btn:SetPoint("TOPLEFT", 8, -y)
       btn:Show()
