@@ -52,10 +52,15 @@ function NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
   refreshBtn:SetText("Refresh Houses")
   refreshBtn:SetPoint("TOPLEFT", 16, -62)
 
+  local updateSavedListBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
+  updateSavedListBtn:SetSize(288, 24)
+  updateSavedListBtn:SetText("Update Saved List")
+  updateSavedListBtn:SetPoint("TOPLEFT", refreshBtn, "BOTTOMLEFT", 0, -6)
+
   local pinBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
   pinBtn:SetSize(288, 26)
   pinBtn:SetText("House Pin")
-  pinBtn:SetPoint("TOPLEFT", refreshBtn, "BOTTOMLEFT", 0, -6)
+  pinBtn:SetPoint("TOPLEFT", updateSavedListBtn, "BOTTOMLEFT", 0, -6)
 
   local sharePinBtn = CreateFrame("Button", nil, hf, "UIPanelButtonTemplate")
   sharePinBtn:SetSize(288, 26)
@@ -176,6 +181,7 @@ function NeighborhoodHideSeek.CreateHouseListFrame(viewHouseListBtn)
     frame = hf,
     listStatus = listStatus,
     refreshBtn = refreshBtn,
+    updateSavedListBtn = updateSavedListBtn,
     pinBtn = pinBtn,
     sharePinBtn = sharePinBtn,
     subdivisionEdit = subdivisionEdit,

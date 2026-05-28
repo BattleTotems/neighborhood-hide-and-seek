@@ -1769,6 +1769,7 @@ NeighborhoodHideSeek.GetPinCoordsForHouseEntry = housingGetPinCoordsForEntry
 NeighborhoodHideSeek.PlotSortKeyFromSavedLabelOrKey = nhsPlotSortKeyFromSavedLabelOrKey
 NeighborhoodHideSeek.SortHouseListInPlace = sortHouseListInPlace
 NeighborhoodHideSeek.LabelFromEntry = labelFromEntry
+NeighborhoodHideSeek.HouseNameFromEntry = houseNameFromEntry
 NeighborhoodHideSeek.EntryHasOwnerDisplay = housingEntryHasOwnerDisplay
 
 local function tryWaypointForEntry(entry, rowIndex)

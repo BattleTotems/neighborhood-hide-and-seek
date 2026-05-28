@@ -50,33 +50,61 @@ NHS.SavedHouses = S
 
 -- Disambiguate same plot/GUID across neighborhoods (and subdivisions) in SavedVariables.
 local NHS_PERSIST_KEY_SEP = "\1"
--- Inside the persistence tail (after first SOH): neighborhood .. STX .. subdivision when both exist.
+-- Inside the persistence tail (after first SOH): neighborhood .. STX .. subdivision .. ETX .. player.
 local NHS_TAIL_PAIR_SEP = "\2"
+local NHS_TAIL_PLAYER_SEP = "\3"
 
-local function persistenceTailFromHoodAndSub(neighborhoodName, subdivisionName)
+-- Builds the tail appended after NHS_PERSIST_KEY_SEP. All three components are optional;
+-- pass nil to omit. Format: hood[\2sub][\3player]
+local function persistenceTailFromHoodAndSub(neighborhoodName, subdivisionName, playerName)
   local h = type(neighborhoodName) == "string" and neighborhoodName:match("^%s*(.-)%s*$") or ""
   local s = type(subdivisionName) == "string" and subdivisionName:match("^%s*(.-)%s*$") or ""
+  local p = type(playerName) == "string" and playerName:match("^%s*(.-)%s*$") or ""
   if h ~= "" and s ~= "" then
-    return h .. NHS_TAIL_PAIR_SEP .. s
+    return h .. NHS_TAIL_PAIR_SEP .. s .. (p ~= "" and (NHS_TAIL_PLAYER_SEP .. p) or "")
   end
   if h ~= "" then
-    return h
+    return h .. (p ~= "" and (NHS_TAIL_PLAYER_SEP .. p) or "")
   end
   if s ~= "" then
-    return s
+    return s  -- legacy fallback: sub without hood, no player appended
   end
   return ""
 end
 
+-- Returns just the hood portion of a tail, stripping subdivision and player.
 local function persistenceTailHoodOnly(tail)
   if type(tail) ~= "string" then
     return ""
   end
-  local pos = tail:find(NHS_TAIL_PAIR_SEP, 1, true)
-  if pos and pos > 1 then
-    return tail:sub(1, pos - 1)
+  local pos2 = tail:find(NHS_TAIL_PAIR_SEP, 1, true)
+  local pos3 = tail:find(NHS_TAIL_PLAYER_SEP, 1, true)
+  local cut = nil
+  if pos2 and pos2 > 1 then cut = pos2 end
+  if pos3 and pos3 > 1 and (not cut or pos3 < cut) then cut = pos3 end
+  return cut and tail:sub(1, cut - 1) or tail
+end
+
+-- Returns the tail with the player component removed (hood[\2sub] only).
+local function persistenceTailWithoutPlayer(tail)
+  if type(tail) ~= "string" then
+    return ""
   end
-  return tail
+  local pos = tail:find(NHS_TAIL_PLAYER_SEP, 1, true)
+  return pos and tail:sub(1, pos - 1) or tail
+end
+
+-- Returns the trimmed player name from a live entry, or nil if unavailable/fallback.
+local function trimmedPlayerNameFromEntry(entry, fallbackIndex)
+  if not (NHS.EntryHasOwnerDisplay and NHS.EntryHasOwnerDisplay(entry)) then
+    return nil
+  end
+  local f = NHS.HouseNameFromEntry
+  if not f then return nil end
+  local n = f(entry, fallbackIndex or 1)
+  if type(n) ~= "string" then return nil end
+  n = n:match("^%s*(.-)%s*$") or ""
+  return n ~= "" and n or nil
 end
 
 function S.PersistenceKeyFromStableNeighborhoodSubdivision(stableKey, neighborhoodName, subdivisionName)
@@ -131,19 +159,24 @@ local function trimmedManualSubdivisionForSave()
   return sub
 end
 
-local function persistenceKeysForLookup(stable)
-  local keys = {}
+local function persistenceKeysForLookup(stable, player)
   local hood = trimmedNeighborhoodName()
   local sub = trimmedManualSubdivisionForSave()
-  local tailFull = persistenceTailFromHoodAndSub(hood, sub)
-  if tailFull ~= "" then
-    keys[#keys + 1] = stable .. NHS_PERSIST_KEY_SEP .. tailFull
+  local seen = {}
+  local keys = {}
+  local function add(tail)
+    local k = tail ~= "" and (stable .. NHS_PERSIST_KEY_SEP .. tail) or stable
+    if not seen[k] then
+      seen[k] = true
+      keys[#keys + 1] = k
+    end
   end
-  local tailHoodOnly = persistenceTailFromHoodAndSub(hood, nil)
-  if tailHoodOnly ~= "" and tailHoodOnly ~= tailFull then
-    keys[#keys + 1] = stable .. NHS_PERSIST_KEY_SEP .. tailHoodOnly
-  end
-  keys[#keys + 1] = stable
+  -- Most specific to least specific; each level tried with and without player for compat.
+  add(persistenceTailFromHoodAndSub(hood, sub, player))
+  add(persistenceTailFromHoodAndSub(hood, sub))
+  add(persistenceTailFromHoodAndSub(hood, nil, player))
+  add(persistenceTailFromHoodAndSub(hood, nil))
+  add("")  -- bare stable key
   return keys
 end
 
@@ -197,19 +230,27 @@ local function wipePersistentKeysSupersededBySave(stable, tailWant, targetKey)
     return
   end
   local wantHasSub = tw:find(NHS_TAIL_PAIR_SEP, 1, true)
+  local wantHasPlayer = tw:find(NHS_TAIL_PLAYER_SEP, 1, true)
   local wantHoodNorm = normalizeNeighborhoodDedup(persistenceTailHoodOnly(tw))
+  local wantNoPlayerNorm = normalizeNeighborhoodDedup(persistenceTailWithoutPlayer(tw))
   local toWipe = {}
   for k in pairs(NHSV.houseSizes) do
     if k ~= targetKey and S.BaseStableKeyFromPersistenceKey(k) == stable then
       local kTail = neighborhoodLabelFromSavedKey(k)
       local kNorm = normalizeNeighborhoodDedup(kTail)
       local kHasSub = kTail:find(NHS_TAIL_PAIR_SEP, 1, true)
+      local kHasPlayer = kTail:find(NHS_TAIL_PLAYER_SEP, 1, true)
       local wipe = false
       if k == stable then
         wipe = true
       elseif kNorm == wantFull then
+        -- Exact match — replace.
         wipe = true
-      elseif wantHasSub and not kHasSub and wantHoodNorm ~= "" and kNorm == wantHoodNorm then
+      elseif wantHasSub and not kHasSub and wantHoodNorm ~= "" and normalizeNeighborhoodDedup(persistenceTailHoodOnly(kTail)) == wantHoodNorm then
+        -- New key adds subdivision over a hood-only (or hood+player) entry for the same hood.
+        wipe = true
+      elseif wantHasPlayer and not kHasPlayer and wantNoPlayerNorm ~= "" and kNorm == wantNoPlayerNorm then
+        -- New key adds player name over an otherwise identical entry (same hood+sub, no player).
         wipe = true
       end
       if wipe then
@@ -271,7 +312,8 @@ function S.GetSavedPresetIndexForEntry(entry)
     return nil
   end
   local pr = presets()
-  for _, key in ipairs(persistenceKeysForLookup(stable)) do
+  local player = trimmedPlayerNameFromEntry(entry)
+  for _, key in ipairs(persistenceKeysForLookup(stable, player)) do
     local idx = tonumber(NHSV.houseSizes[key])
     if idx and idx >= 1 and idx <= #pr then
       return idx
@@ -295,8 +337,9 @@ function S.SetSavedPresetForEntry(entry, presetIdx, displayLabel, listRowIndex)
   end
   local hood = trimmedNeighborhoodName()
   local sub = trimmedManualSubdivisionForSave()
-  local tail = persistenceTailFromHoodAndSub(hood, sub)
-  local key = S.PersistenceKeyFromStableNeighborhoodSubdivision(stable, hood, sub)
+  local player = trimmedPlayerNameFromEntry(entry, listRowIndex)
+  local tail = persistenceTailFromHoodAndSub(hood, sub, player)
+  local key = tail ~= "" and (stable .. NHS_PERSIST_KEY_SEP .. tail) or stable
   ensureSaved()
   wipePersistentKeysSupersededBySave(stable, tail, key)
   NHSV.houseSizes[key] = presetIdx
@@ -326,14 +369,91 @@ function S.SetSavedPresetForEntry(entry, presetIdx, displayLabel, listRowIndex)
   return true
 end
 
+-- Migrate a specific saved key to the current neighborhood/subdivision context.
+-- Writes the new key first, then removes the old one, so no data is lost on failure.
+-- Does not touch any other saved keys for the same stable slot.
+function S.MigrateSavedEntryToCurrentContext(savedKey, entry, listRowIndex)
+  ensureSaved()
+  local presetIdx = tonumber(NHSV.houseSizes[savedKey])
+  local pr = presets()
+  if not presetIdx or presetIdx < 1 or presetIdx > #pr then
+    return false
+  end
+  local stable = S.StableKeyFromEntry(entry)
+  if not stable then
+    return false
+  end
+  local hood = trimmedNeighborhoodName()
+  -- Guard against cross-neighborhood overwrites: if the saved key already has a
+  -- neighborhood tail, it must match the current neighborhood. Only legacy keys
+  -- (no tail) are allowed to migrate into any neighborhood context.
+  local sepPos = savedKey:find(NHS_PERSIST_KEY_SEP, 1, true)
+  if sepPos then
+    local savedHoodNorm = normalizeNeighborhoodDedup(persistenceTailHoodOnly(savedKey:sub(sepPos + 1)))
+    local currentHoodNorm = normalizeNeighborhoodDedup(hood or "")
+    if savedHoodNorm == "" or currentHoodNorm == "" or savedHoodNorm ~= currentHoodNorm then
+      return false
+    end
+  end
+  local sub = trimmedManualSubdivisionForSave()
+  local player = trimmedPlayerNameFromEntry(entry, listRowIndex)
+  -- If the edit box has no subdivision but the saved key already encodes one, keep it so
+  -- that two entries at the same plot in different subdivisions don't collapse to the same key.
+  if not sub and sepPos then
+    local pairPos = savedKey:find(NHS_TAIL_PAIR_SEP, sepPos + 1, true)
+    if pairPos then
+      local playerPos = savedKey:find(NHS_TAIL_PLAYER_SEP, pairPos + 1, true)
+      sub = playerPos and savedKey:sub(pairPos + 1, playerPos - 1) or savedKey:sub(pairPos + 1)
+    end
+  end
+  local newTail = persistenceTailFromHoodAndSub(hood, sub, player)
+  local newKey = newTail ~= "" and (stable .. NHS_PERSIST_KEY_SEP .. newTail) or stable
+  local mapID, x, y = getPinCoords(entry, listRowIndex or 1)
+  if newKey == savedKey then
+    -- Key unchanged — just refresh the pin coords from the live entry.
+    if mapID and mapID ~= 0 and x ~= nil and y ~= nil then
+      NHSV.housePinCoords[newKey] = { mapID = mapID, x = x, y = y }
+    end
+    return true
+  end
+  -- Write new key first so data is never absent, then delete old key.
+  local displayLabel = NHSV.houseLabels[savedKey]
+  NHSV.houseSizes[newKey] = presetIdx
+  if type(displayLabel) == "string" and displayLabel ~= "" then
+    NHSV.houseLabels[newKey] = displayLabel
+  end
+  if type(NHSV.houseNeighborhoodNames) ~= "table" then
+    NHSV.houseNeighborhoodNames = {}
+  end
+  if hood then
+    NHSV.houseNeighborhoodNames[newKey] = hood
+  end
+  if type(NHSV.houseSubdivisionNames) ~= "table" then
+    NHSV.houseSubdivisionNames = {}
+  end
+  if sub then
+    NHSV.houseSubdivisionNames[newKey] = sub
+  else
+    NHSV.houseSubdivisionNames[newKey] = nil
+  end
+  if mapID and mapID ~= 0 and x ~= nil and y ~= nil then
+    NHSV.housePinCoords[newKey] = { mapID = mapID, x = x, y = y }
+  else
+    NHSV.housePinCoords[newKey] = nil
+  end
+  nhsRemoveSavedHouseKey(savedKey)
+  return true
+end
+
 function S.ClearSavedPresetForEntry(entry)
   local stable = S.StableKeyFromEntry(entry)
   if not stable then
     return false
   end
   ensureSaved()
+  local player = trimmedPlayerNameFromEntry(entry)
   local key
-  for _, k in ipairs(persistenceKeysForLookup(stable)) do
+  for _, k in ipairs(persistenceKeysForLookup(stable, player)) do
     if NHSV.houseSizes[k] ~= nil then
       key = k
       break

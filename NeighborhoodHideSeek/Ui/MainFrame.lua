@@ -458,6 +458,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   local hf = hl.frame
   local listStatus = hl.listStatus
   local refreshBtn = hl.refreshBtn
+  local updateSavedListBtn = hl.updateSavedListBtn
   local pinBtn = hl.pinBtn
   local sharePinBtn = hl.sharePinBtn
   local housingSelText = hl.housingSelText
@@ -1979,6 +1980,50 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   refreshBtn:SetScript("OnClick", function()
     refreshHouseList()
+  end)
+
+  updateSavedListBtn:SetScript("OnClick", function()
+    local S = NHS.SavedHouses
+    -- Collect matches before modifying NHSV (SetSavedPresetForEntry mutates the table).
+    -- Require both stable key (plot ID / GUID) AND label (plot number + character name) to
+    -- match so that a different occupant at the same plot ID in another neighborhood is never
+    -- treated as the same house.
+    local matches = {}
+    for i, entry in ipairs(housesCache) do
+      local stable = S.StableKeyFromEntry(entry)
+      if stable then
+        local liveLabel = NHS.LabelFromEntry(entry, i)
+        for savedKey in pairs(NHSV.houseSizes) do
+          if S.BaseStableKeyFromPersistenceKey(savedKey) == stable then
+            local savedLabel = NHSV.houseLabels[savedKey]
+            if type(savedLabel) == "string" and savedLabel == liveLabel then
+              matches[#matches + 1] = {
+                entry = entry,
+                index = i,
+                savedKey = savedKey,
+              }
+              break
+            end
+          end
+        end
+      end
+    end
+    local updated = 0
+    for _, m in ipairs(matches) do
+      if S.MigrateSavedEntryToCurrentContext(m.savedKey, m.entry, m.index) then
+        updated = updated + 1
+      end
+    end
+    if updated > 0 then
+      print(("|cff88ff88[NHS]|r Updated %d saved house(s) with current neighborhood data."):format(updated))
+      updateHouseListButtonLabels()
+      refreshSavedHousesPanel()
+      if UI.RefreshGameRounds then
+        UI.RefreshGameRounds()
+      end
+    else
+      print("|cffff8800[NHS]|r No saved houses matched the current neighborhood.")
+    end
   end)
 
   pinBtn:SetScript("OnClick", function()
