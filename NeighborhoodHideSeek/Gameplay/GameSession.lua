@@ -177,6 +177,10 @@ local function nhsStartBuiltInCountdown(seconds)
   end
   if C_PartyInfo and C_PartyInfo.DoCountdown then
     local ok, success = pcall(C_PartyInfo.DoCountdown, seconds)
+    if NHS.debugSync then
+      print(("|cffffcc00[NHS] debugsync|r DoCountdown(%d): pcall_ok=%s success=%s"):format(
+        seconds, tostring(ok), tostring(success)))
+    end
     if ok and success then
       return true
     end
@@ -926,6 +930,9 @@ end
 
 if NHS.debugFoundSync == nil then
   NHS.debugFoundSync = false
+end
+if NHS.debugSync == nil then
+  NHS.debugSync = false
 end
 NHS.DebugDumpFoundSyncState = nhsDebugFoundSyncDump
 

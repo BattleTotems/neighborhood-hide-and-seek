@@ -6,6 +6,7 @@
   Non-leader seeker: we update this client's found list first (foundSet / foundOrder), then
   BroadcastSeekerFound, then NHS.RefreshGameSessionUi (main frame if built, else session HUD only).
   Debug: /nhs debugfound — prints roster + keys when a step is blocked (debugFoundSync on).
+  Debug: /nhs debugsync  — traces DoCountdown return values, addon messages sent/received, and phase sync.
 ]]
 
 local NHS = NeighborhoodHideSeek

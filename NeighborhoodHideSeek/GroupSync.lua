@@ -64,7 +64,15 @@ local function nhsSendAddonSyncPayload(message)
   if not C_ChatInfo or not C_ChatInfo.SendAddonMessage then
     return
   end
-  pcall(C_ChatInfo.SendAddonMessage, NHS_ADDON_PREFIX, message, nhsAddonSyncChatType())
+  local ch = nhsAddonSyncChatType()
+  if NHS.debugSync then
+    print(("|cffffcc00[NHS] debugsync|r SendAddonMessage prefix=%s ch=%s msg=%s"):format(
+      NHS_ADDON_PREFIX, tostring(ch), tostring(message)))
+  end
+  local ok, err = pcall(C_ChatInfo.SendAddonMessage, NHS_ADDON_PREFIX, message, ch)
+  if NHS.debugSync and not ok then
+    print(("|cffffcc00[NHS] debugsync|r SendAddonMessage ERROR: %s"):format(tostring(err)))
+  end
 end
 
 local function nhsChatSenderIsGroupLeader(senderName)
@@ -355,10 +363,20 @@ end
 
 local function nhsApplyGroupSyncFromLeader(senderName, text)
   if C.nhsIsRoundLeader() or not IsInGroup() then
+    if NHS.debugSync then
+      print(("|cffffcc00[NHS] debugsync|r ApplyFromLeader skipped: isLeader=%s inGroup=%s"):format(
+        tostring(C.nhsIsRoundLeader()), tostring(IsInGroup())))
+    end
     return
   end
   if not nhsChatSenderIsGroupLeader(senderName) then
+    if NHS.debugSync then
+      print(("|cffffcc00[NHS] debugsync|r ApplyFromLeader rejected: sender=%s not group leader"):format(tostring(senderName)))
+    end
     return
+  end
+  if NHS.debugSync then
+    print(("|cffffcc00[NHS] debugsync|r ApplyFromLeader accepted: sender=%s msg=%s"):format(tostring(senderName), tostring(text)))
   end
   if type(text) ~= "string" or text:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
     return
@@ -716,6 +734,9 @@ end
 local function nhsDispatchGroupNhsLine(senderName, text)
   senderName = nhsNormalizeSyncSender(senderName)
   if nhsGroupSyncLineRecentlyHandled(senderName, text) then
+    if NHS.debugSync then
+      print(("|cffffcc00[NHS] debugsync|r Deduped (within 0.35s): sender=%s"):format(tostring(senderName)))
+    end
     return
   end
   if nhsApplyFoundSyncFromChat(senderName, text) then
@@ -763,10 +784,20 @@ nhsSyncChatFrame:SetScript("OnEvent", function(_, event, ...)
   if prefix ~= NHS_ADDON_PREFIX then
     return
   end
+  if NHS.debugSync then
+    print(("|cffffcc00[NHS] debugsync|r CHAT_MSG_ADDON prefix=%s ch=%s sender=%s msg=%s"):format(
+      tostring(prefix), tostring(channel), tostring(sender), tostring(msg)))
+  end
   if not nhsAddonCommChannelAllowed(channel) then
+    if NHS.debugSync then
+      print(("|cffffcc00[NHS] debugsync|r Dropped: channel %s not allowed"):format(tostring(channel)))
+    end
     return
   end
   if type(msg) ~= "string" or msg:sub(1, #NHS_CHAT_TAG) ~= NHS_CHAT_TAG then
+    if NHS.debugSync then
+      print(("|cffffcc00[NHS] debugsync|r Dropped: msg missing [NHS] tag"  ))
+    end
     return
   end
   nhsDispatchGroupNhsLineSafe(sender, msg)

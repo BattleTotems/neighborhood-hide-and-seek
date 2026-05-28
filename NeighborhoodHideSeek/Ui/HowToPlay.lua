@@ -44,7 +44,7 @@ local NHS_HOW_TO_PLAY_SECTIONS = {
     title = "Game control (leader only)",
     body = table.concat({
       "• Start game session — begins a session. End game session stops it.",
-      "• House list selection - select what list of houses will be used. This happens only once per game session."
+      "• House list selection - select what list of houses will be used. This happens only once per game session.",
       "• House selection — Select a house at random or from the list. Random house avoids repeats until every entry in that list has been used once.",
       "• Game mode selection — Select which game mode the round uses.",
       "• Seeker selection — Select a seeker at random or a from the group. Random seeker avoids repeats until everyone has been the seeker once.",

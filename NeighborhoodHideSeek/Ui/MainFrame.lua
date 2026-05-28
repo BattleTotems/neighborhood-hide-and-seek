@@ -1923,21 +1923,24 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
         end
       end
     end
+    -- Phase transition happens unconditionally; the Blizzard countdown is cosmetic only.
+    -- Some addons (e.g. BigWigs) hook C_PartyInfo.DoCountdown without passing through its
+    -- return value, which would otherwise block the phase from advancing.
+    local targetPhase = self._kind == "hide" and Phase.HIDING or Phase.SEARCHING
+    local phaseLabel  = self._kind == "hide" and "Hiding" or "Searching"
+    nhsLeaderBroadcastRoundPhase(targetPhase)
+    print(("|cff88ccff[NHS]|r %s — %s (%d s)."):format(phaseLabel, presetName, sec))
     local ok, err = B.nhsStartBuiltInCountdown(sec)
-    if ok then
-      local phaseLabel = (self._kind == "hide") and "Hiding" or "Searching"
-      nhsLeaderBroadcastRoundPhase(self._kind == "hide" and Phase.HIDING or Phase.SEARCHING)
-      print(
-        ("|cff88ccff[NHS]|r %s — %s (%d s)."):format(phaseLabel, presetName, sec)
-      )
-      if UI.RefreshAll then
-        UI.RefreshAll()
+    if not ok then
+      if NHS.debugSync then
+        print(("|cffffcc00[NHS] debugsync|r Countdown returned: ok=%s err=%s"):format(tostring(ok), tostring(err)))
       end
-      B.nhsSeekerAutoModeSyncToPhase()
-      B.nhsPersistGameSessionToSaved()
-    else
-      print("|cffff8800[NHS]|r " .. tostring(err))
     end
+    if UI.RefreshAll then
+      UI.RefreshAll()
+    end
+    B.nhsSeekerAutoModeSyncToPhase()
+    B.nhsPersistGameSessionToSaved()
   end
 
   for _, b in ipairs(hidePresetBtns) do
