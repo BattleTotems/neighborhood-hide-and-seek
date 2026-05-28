@@ -5,3 +5,4 @@ Ideas:
 - export previous rounds
 - import/export saved house list
 - back option during gameplay control
+- if using group house list, check names against saved to see if we can get house pin
