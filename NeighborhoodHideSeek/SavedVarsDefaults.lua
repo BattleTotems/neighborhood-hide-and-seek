@@ -57,6 +57,9 @@ local function ensureSavedVars()
   if NHSV.showMinimapButton == nil then
     NHSV.showMinimapButton = true
   end
+  if NHSV.suppressSeekerModeDialog == nil then
+    NHSV.suppressSeekerModeDialog = false
+  end
 end
 
 NHS.EnsureSavedVars = ensureSavedVars

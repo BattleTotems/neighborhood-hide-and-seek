@@ -28,6 +28,7 @@ SlashCommands.lua
 Ui/MinimapButton.lua
 Ui/Options.lua
 Ui/HowToPlay.lua
+Ui/SeekerModeDialog.lua
 Ui/GameModesInfo.lua
 Ui/BlizzardSettings.lua
 House/Housing.lua

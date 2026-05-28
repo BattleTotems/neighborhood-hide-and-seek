@@ -3,23 +3,23 @@ Changelog:
 - found player list is now shown in found order
 - players no longer cancel timers on leaving groups, only when sessions were active
 - preset search timers slightly reduced 
+- backend updates for easier syncing
+- new reveal phase at the end of a round to let players show off their unique hiding spots when not found
+- subdivision for house list is now a manual input
+- current neighborhood save neighborhood for when in houses
+- Bigwigs bug
+- Entering seeker mode popup - telling them to hide UI if custom
 
 
 TODO:
-- non leader doesn't take seeker out of hiders list (To be tested again)
-- found order is in alphabetical, should be by found
-- hiding timer done still can mark as found for the previous rounds data
-- second sub division (add manual subdivision data)
-- Entering seeker mode popup - telling them to hide UI if custom
-- Bigwigs bug
 - Enter seeker mode on session UI for seekers
-- Reveal game phase after searching (announcing winner)
-- Automatic timer to move to next phase (hiding -> searching, searching -> reveal)
-- Automatic move to reveal when all players are found
-- Add option to not do automatic phase transitions (enabled by default)
-- update how to play with new phases
-- create a game modes info UI that can be seen from different parts, like game mode selection and options
 - update version
+
+Ideas:
+- non leader doesn't take seeker out of hiders list (To be tested again)
+- Automatic move to reveal when all players are found
+- low health frame on hiders when a seeker is close (UIFrameFlash(LowHealthFrame, 0.5, 0.5, 1.5, true, 0.2, 0))
+- export previous rounds
 
 
 Game modes: (maybe make normal, short, and other search timers so it's not just based on %)

@@ -13,7 +13,7 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
   end
 
   local optf = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-  optf:SetSize(340, 358)
+  optf:SetSize(340, 410)
   optf:SetClampedToScreen(true)
   optf:SetMovable(true)
   optf:EnableMouse(true)
@@ -161,6 +161,20 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
   cbRandPickAnim:SetScript("OnClick", applySeekerUiOptionChange)
   cbGameplaySounds:SetScript("OnClick", applySeekerUiOptionChange)
   cbMinimapLauncher:SetScript("OnClick", applySeekerUiOptionChange)
+
+  local optSeekerSep2 = optf:CreateTexture(nil, "ARTWORK", nil, 1)
+  optSeekerSep2:SetColorTexture(1, 1, 1, 0.12)
+  optSeekerSep2:SetSize(300, 1)
+  optSeekerSep2:SetPoint("TOPLEFT", optSeekerHint, "BOTTOMLEFT", 0, -14)
+
+  local optResetDialogBtn = CreateFrame("Button", nil, optf, "UIPanelButtonTemplate")
+  optResetDialogBtn:SetSize(300, 26)
+  optResetDialogBtn:SetPoint("TOPLEFT", optSeekerSep2, "BOTTOMLEFT", 0, -8)
+  optResetDialogBtn:SetText("Reset Seeker Mode Dialog")
+  optResetDialogBtn:SetScript("OnClick", function()
+    ensureSaved()
+    NHSV.suppressSeekerModeDialog = false
+  end)
 
   local optCloseBtn = CreateFrame("Button", nil, optf, "UIPanelCloseButton")
   optCloseBtn:SetPoint("TOPRIGHT", -6, -6)

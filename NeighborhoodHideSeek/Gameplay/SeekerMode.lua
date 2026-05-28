@@ -164,6 +164,9 @@ local function setSeekerMode(enabled)
     end
     hideAllNameplates()
     seekerUiSuppressStart()
+    if NHS.ShowSeekerModeEngagedDialog then
+      NHS.ShowSeekerModeEngagedDialog()
+    end
   else
     seekerUiSuppressStop()
     applyNameplateSnapshot(State.savedNameplateCVars)
