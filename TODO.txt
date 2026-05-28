@@ -9,10 +9,13 @@ Changelog:
 - current neighborhood save neighborhood for when in houses
 - Bigwigs bug
 - Entering seeker mode popup - telling them to hide UI if custom
+- Enter seeker mode on session UI for seekers
+- add information button to session UI
+- add enter seeker button to session UI
 
 
 TODO:
-- Enter seeker mode on session UI for seekers
+- auto update house list
 - update version
 
 Ideas:

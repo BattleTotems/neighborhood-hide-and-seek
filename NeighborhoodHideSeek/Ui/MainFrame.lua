@@ -816,6 +816,11 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     hideCustomCountdownBtn:SetShown(show)
     searchCustomSecEdit:SetShown(show)
     searchCustomCountdownBtn:SetShown(show)
+    revealRowLbl:SetShown(show)
+    revealBtn:SetShown(show)
+    endRoundBtn:SetShown(show)
+    gameplayGroupCatchUpBtn:SetShown(show)
+    divControlOptions:SetShown(show)
   end
 
   local function nhsCountdownFormatDuration(sec)
@@ -858,47 +863,15 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
     if not useLeaderUi then
       setControlSectionVisible(false)
-      endRoundBtn:Hide()
-      sessionToggleBtn:Hide()
-      gameplayGroupCatchUpBtn:Disable()
+      roundsHint:Hide()
       orphanSessionBtn:SetShown(showOrphanEnd)
-      roundsHint:Show()
-      if State.gameSessionActive then
-        roundsHint:SetText(
-          "Party/raid data may be unavailable briefly during travel or loading. "
-            .. "Session is kept in memory and saved — it will not be deleted automatically."
-        )
-        syncSeekerUiOptionsFromSaved()
-        syncMainFrameHeight()
-        if B.nhsSessionHudUpdate then
-          B.nhsSessionHudUpdate()
-        end
-        return
-      end
-      if ingroup and State.remoteSessionActive and IsRoundPhase(State.phase) then
-        roundsHint:SetText("Group sync (addon); party/raid lines when out of combat")
-        orphanSessionBtn:Hide()
-        syncSeekerUiOptionsFromSaved()
-        syncMainFrameHeight()
-        if B.nhsSessionHudUpdate then
-          B.nhsSessionHudUpdate()
-        end
-        gameplayGroupCatchUpBtn:Disable()
-        return
-      end
-
-      orphanSessionBtn:Hide()
-      roundsHint:SetText(
-        not ingroup and "Join a party or raid to sync game rounds with the leader."
-          or "Only the party/raid leader can run game control."
-      )
-      roundsHint:Show()
+      historySectionHdr:ClearAllPoints()
+      historySectionHdr:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -44)
       syncSeekerUiOptionsFromSaved()
       syncMainFrameHeight()
       if B.nhsSessionHudUpdate then
         B.nhsSessionHudUpdate()
       end
-      gameplayGroupCatchUpBtn:Disable()
       return
     end
 
@@ -907,6 +880,8 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     roundsHint:Hide()
     sessionToggleBtn:Show()
     orphanSessionBtn:Hide()
+    historySectionHdr:ClearAllPoints()
+    historySectionHdr:SetPoint("TOPLEFT", divControlOptions, "BOTTOMLEFT", 8, -8)
 
     sessionToggleBtn:SetText(sess and "End Game Session" or "Start Game Session")
     sessionToggleBtn:SetEnabled(mayAct)

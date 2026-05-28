@@ -221,6 +221,19 @@ local function nhsSessionHudUpdate()
     hud._foundLine:SetPoint("TOPLEFT", hud._hiddenLine, "BOTTOMLEFT", 0, -6)
   end
   hud._foundLine:SetText(nhsSessionHudFoundFormatted())
+  local showSeekerBtn = hud._seekerModeBtn
+    and (State.phase == Phase.HIDING or State.phase == Phase.SEARCHING)
+    and NHS.MayEnterSeekerMode and NHS.MayEnterSeekerMode()
+    and not State.seekerMode
+  if hud._seekerModeBtn then
+    if showSeekerBtn then
+      hud._seekerModeBtn:ClearAllPoints()
+      hud._seekerModeBtn:SetPoint("TOPLEFT", hud._foundLine, "BOTTOMLEFT", 0, -8)
+      hud._seekerModeBtn:Show()
+    else
+      hud._seekerModeBtn:Hide()
+    end
+  end
   local padBottom = 14
   local hTitle = hud._title:GetStringHeight() or 12
   local hPhase = hud._phaseLine:GetStringHeight() or 12
@@ -231,7 +244,8 @@ local function nhsSessionHudUpdate()
   local hClosest = closestRange and (hud._closestRangeLine:GetStringHeight() or 12) or 0
   local hFound = hud._foundLine:GetStringHeight() or 12
   local gapClosest = closestRange and 6 or 0
-  local totalH = 12 + hTitle + 10 + hPhase + 4 + hMode + 4 + hHouse + 4 + hSeek + 8 + hHid + gapClosest + hClosest + 6 + hFound + padBottom
+  local hBtn = showSeekerBtn and 32 or 0
+  local totalH = 12 + hTitle + 10 + hPhase + 4 + hMode + 4 + hHouse + 4 + hSeek + 8 + hHid + gapClosest + hClosest + 6 + hFound + hBtn + padBottom
   hud:SetHeight(math.max(130, math.min(360, totalH)))
 end
 
@@ -286,6 +300,25 @@ local function nhsInitSessionHud()
   else
     hud:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -24, -160)
   end
+  local openBtn = CreateFrame("Button", nil, hud)
+  openBtn:SetSize(20, 20)
+  openBtn:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -10, -10)
+  openBtn:SetNormalTexture("Interface\\Common\\help-i")
+  openBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+  openBtn:SetScript("OnClick", function()
+    if NHS.ToggleMainWindow then
+      NHS.ToggleMainWindow()
+    end
+  end)
+  openBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:SetText("Hide & Seek", 1, 1, 1)
+    GameTooltip:AddLine("Click to open the main window.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  openBtn:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
   local title = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   title:SetPoint("TOPLEFT", 12, -12)
   title:SetText("Hide & Seek")
@@ -325,6 +358,15 @@ local function nhsInitSessionHud()
   foundLine:SetWidth(contentW)
   foundLine:SetJustifyH("LEFT")
   foundLine:SetSpacing(2)
+  local seekerModeBtn = CreateFrame("Button", nil, hud, "UIPanelButtonTemplate")
+  seekerModeBtn:SetSize(160, 24)
+  seekerModeBtn:SetText("Enter Seeker Mode")
+  seekerModeBtn:SetScript("OnClick", function()
+    if NHS.SetSeekerMode then
+      NHS.SetSeekerMode(true)
+    end
+  end)
+  seekerModeBtn:Hide()
   hud._phaseLine = phaseLine
   hud._gameModeLine = gameModeLine
   hud._houseLine = houseLine
@@ -332,6 +374,7 @@ local function nhsInitSessionHud()
   hud._foundLine = foundLine
   hud._hiddenLine = hiddenLine
   hud._closestRangeLine = closestRangeLine
+  hud._seekerModeBtn = seekerModeBtn
   UI.sessionHud = hud
   nhsSessionHudUpdate()
 end
