@@ -1,0 +1,32 @@
+Changelog:
+- enemy player names now auto hide when in seeker mode
+- found player list is now shown in found order
+- players no longer cancel timers on leaving groups, only when sessions were active
+- preset search timers slightly reduced 
+
+
+TODO:
+- non leader doesn't take seeker out of hiders list (To be tested again)
+- found order is in alphabetical, should be by found
+- hiding timer done still can mark as found for the previous rounds data
+- second sub division (add manual subdivision data)
+- Entering seeker mode popup - telling them to hide UI if custom
+- Bigwigs bug
+- Enter seeker mode on session UI for seekers
+- Reveal game phase after searching (announcing winner)
+- Automatic timer to move to next phase (hiding -> searching, searching -> reveal)
+- Automatic move to reveal when all players are found
+- Add option to not do automatic phase transitions (enabled by default)
+- update how to play with new phases
+- create a game modes info UI that can be seen from different parts, like game mode selection and options
+- update version
+
+
+Game modes: (maybe make normal, short, and other search timers so it's not just based on %)
+- normal
+- hot and cold: hot and cold indicator, 50% search timer
+- paired: 2 seekers 50% search timer
+- conquer: found players become seekers, seeker mode on for all players at start, 50% search timer
+- chosen one: one hider, 50% search timer
+- normal+: every 10 seconds the closest person /whistle (or some audible thing), when 1 hider left they ping themselves
+-lightning: 30 second hide timer, 50% search timer

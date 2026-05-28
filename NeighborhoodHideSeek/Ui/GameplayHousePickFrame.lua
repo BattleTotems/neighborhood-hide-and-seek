@@ -12,7 +12,7 @@ function NHS.CreateGameplayHousePickFrame(opts)
   local onAfterPick = opts.onAfterPick or function() end
 
   local ghfp = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-  ghfp:SetSize(300, 380)
+  ghfp:SetSize(388, 380)
   ghfp:SetClampedToScreen(true)
   ghfp:SetMovable(true)
   ghfp:EnableMouse(true)
@@ -26,7 +26,7 @@ function NHS.CreateGameplayHousePickFrame(opts)
     local p, _, rp, x, y = self:GetPoint(1)
     NHSV.gameplayHousePickFramePoint = { p, rp or "UIParent", x, y }
   end)
-  ghfp:SetBackdrop({
+  ghfp:SetBackdrop({ 
     bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
     edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
     tile = true,
@@ -40,16 +40,16 @@ function NHS.CreateGameplayHousePickFrame(opts)
   ghfpTitle:SetText("Pick A House")
   local ghfpStatus = ghfp:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   ghfpStatus:SetPoint("TOPLEFT", 16, -40)
-  ghfpStatus:SetWidth(268)
+  ghfpStatus:SetWidth(356)
   ghfpStatus:SetJustifyH("LEFT")
   ghfpStatus:SetText("—")
   local ghfpScroll = CreateFrame("ScrollFrame", nil, ghfp)
   ghfpScroll:SetPoint("TOPLEFT", 16, -62)
-  ghfpScroll:SetSize(268, 300)
+  ghfpScroll:SetSize(356, 300)
   NHS.SetupScrollFrameMouseWheel(ghfpScroll)
 
   local ghfpScrollChild = CreateFrame("Frame", nil, ghfpScroll)
-  ghfpScrollChild:SetSize(268, 1)
+  ghfpScrollChild:SetSize(356, 1)
   ghfpScrollChild:EnableMouse(true)
   ghfpScroll:SetScrollChild(ghfpScrollChild)
   local ghfpCloseBtn = CreateFrame("Button", nil, ghfp, "UIPanelCloseButton")
@@ -95,10 +95,10 @@ function NHS.CreateGameplayHousePickFrame(opts)
         btn = CreateFrame("Button", nil, ghfpScrollChild, "UIPanelButtonTemplate")
         gameplayPickRowBtns[i] = btn
       end
-      btn:SetSize(252, 22)
+      btn:SetSize(340, 22)
       btn:SetText(row.display)
       btn:ClearAllPoints()
-      btn:SetPoint("TOPLEFT", 8, -y)
+      btn:SetPoint("TOPLEFT", 0, -y)
       btn._gpRow = row
       btn:SetScript("OnClick", function(self)
         local r = self._gpRow

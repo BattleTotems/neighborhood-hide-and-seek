@@ -30,6 +30,28 @@ do
   NeighborhoodHideSeek.ADDON_VERSION_DISPLAY = v and ("Version " .. v) or "Version —"
 end
 
+-- Unified phase enumeration (string values for saved-variable compatibility).
+-- Setup phases: PICK_HOUSE → PICK_GAME_MODE → PICK_SEEKER.
+-- Round phases: PENDING → HIDING → SEARCHING → REVEALING (see IsRoundPhase).
+NeighborhoodHideSeek.Phase = {
+  NONE           = "none",
+  PICK_GAME_MODE = "pick_game_mode",
+  PICK_HOUSE     = "pick_house",
+  PICK_SEEKER    = "pick_seeker",
+  PENDING        = "pending",
+  HIDING         = "hiding",
+  SEARCHING      = "searching",
+  REVEALING      = "revealing",
+}
+
+local Phase = NeighborhoodHideSeek.Phase
+
+local function nhsIsRoundPhase(phase)
+  return phase == Phase.PENDING or phase == Phase.HIDING
+    or phase == Phase.SEARCHING or phase == Phase.REVEALING
+end
+NeighborhoodHideSeek.IsRoundPhase = nhsIsRoundPhase
+
 -- Ephemeral session state (not saved between sessions).
 local State = {
   seekerMode = false,
@@ -43,7 +65,9 @@ local State = {
   selectedIndex = nil,
   -- Leader-only game rounds (ephemeral; lost on reload)
   gameSessionActive = false,
-  gamePhase = "none", -- none | pick_house | pick_seeker | round_active
+  phase = Phase.NONE, -- unified phase: setup (pick_game_mode/house/seeker) or round (pending/hiding/searching/revealing)
+  gameMode = nil, -- normal | hot_cold (leader; cleared each round until re-picked)
+  remoteGameMode = nil, -- follower mirror of leader's mode for current round
   -- Leader: once per session — neighborhood | saved | group (nil = not chosen yet).
   gameSessionHouseListSource = nil,
   gameHouseCandidateKey = nil,
@@ -54,24 +78,18 @@ local State = {
   gameLockedHouseLiveIndex = nil,
   gameHouseRotationUsed = {},
   gameHouseHistory = {},
-  gameCandidateKey = nil,
-  gameCandidateDisplay = nil,
-  gameLockedSeekerKey = nil,
-  gameLockedSeekerDisplay = nil,
+  gameCandidateKeys = {},    -- list of seeker candidates being built (not yet confirmed)
+  gameLockedSeekerKeys = {}, -- confirmed seeker keys for the current round
   gameSeekerHistory = {},
   gameRotationUsed = {},
   -- Follower: last house line from leader addon sync (same text may appear in party/raid when out of combat).
   remoteHouseDisplay = nil,
   -- Round flow: leader/seeker addon messages; optional party/raid chat for players when not in combat lockdown.
-  roundPhase = "none", -- none | pending (preparing) | hiding | searching
-  remoteRoundActive = false,
-  remoteSeekerKey = nil,
+  remoteSeekerKeys = {},     -- follower mirror of leader's seeker key list for this round
   -- Follower: leader sent "[NHS] Game session started" (stays true until Game Over chat).
   remoteSessionActive = false,
-  -- Follower: mirrors leader gamePhase during setup (pick_house | pick_seeker) and round_active; none when idle.
-  remoteLeaderGamePhase = "none",
-  -- Raid leader: we PromoteToAssistant'd the seeker for RAID_WARNING; demote on round/session end.
-  nhsSeekerPromotedAsAssistantKey = nil,
+  -- Raid leader: we PromoteToAssistant'd seekers for RAID_WARNING; demote on round/session end.
+  nhsSeekerPromotedAsAssistantKeys = {},
   -- Completed rounds for the current or last-ended session (house+size / seeker / hidden / found).
   -- Cleared when a new game session starts. After a session ends, data stays in memory and is
   -- written to NHSV.lastCompletedPastRounds for /reload; hydrate loads that when no active
@@ -108,8 +126,8 @@ NeighborhoodHideSeek.GroupSyncBridge = {
 }
 
 -- Used with GROUP_ROSTER_UPDATE / PARTY_LEADER_CHANGED / PLAYER_ENTERING_WORLD so we only
--- tear down group session + seeker mode when the local player actually leaves a group (not
--- for solo-only game session / seeker preview, which never had wasInGroup = true).
+-- tear down an active game session when the local player actually leaves a group (not when
+-- leaving an unrelated party, and not for solo-only session / seeker preview).
 local wasInGroup = false
 
 local function nhsSyncGroupLeaveCleanup()
@@ -117,20 +135,23 @@ local function nhsSyncGroupLeaveCleanup()
   local inGroup = IsInGroup()
 
   if wasInGroup and not inGroup then
-    local B = NHS.BuildMainFrameBridge
-    if B and B.nhsResetGameSession then
-      B.nhsResetGameSession()
-    else
-      if NHS.GroupSync and NHS.GroupSync.ClearRemoteRound and State.remoteRoundActive then
-        NHS.GroupSync.ClearRemoteRound()
-      end
-      if State.seekerMode and NHS.SetSeekerMode then
-        NHS.SetSeekerMode(false)
+    local hadSession = State.gameSessionActive or State.remoteSessionActive
+    if hadSession then
+      local B = NHS.BuildMainFrameBridge
+      if B and B.nhsResetGameSession then
+        B.nhsResetGameSession()
+      else
+        if NHS.GroupSync and NHS.GroupSync.ClearRemoteRound and nhsIsRoundPhase(State.phase) then
+          NHS.GroupSync.ClearRemoteRound()
+        end
+        if State.seekerMode and NHS.SetSeekerMode then
+          NHS.SetSeekerMode(false)
+        end
       end
     end
   end
 
-  if not inGroup and State.remoteRoundActive and NHS.GroupSync and NHS.GroupSync.ClearRemoteRound then
+  if not inGroup and State.remoteSessionActive and nhsIsRoundPhase(State.phase) and NHS.GroupSync and NHS.GroupSync.ClearRemoteRound then
     NHS.GroupSync.ClearRemoteRound()
   end
 

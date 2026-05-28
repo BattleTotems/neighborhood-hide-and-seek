@@ -117,26 +117,10 @@ local function trimmedNeighborhoodName()
   return hood
 end
 
--- Full C_Housing.GetCurrentNeighborhoodGUID() value for SavedVariables keys (distinct per subdivision slice).
-local function trimmedSubdivisionPersistenceId()
-  local f = NHS.GetNeighborhoodSubdivisionPersistenceId
-  if not f then
-    return nil
-  end
-  local id = f()
-  if type(id) ~= "string" then
-    return nil
-  end
-  id = id:match("^%s*(.-)%s*$") or ""
-  if id == "" then
-    return nil
-  end
-  return id
-end
-
--- Short / API label for chat and houseSubdivisionNames (may differ from persistence id).
-local function trimmedSubdivisionDisplayLabel()
-  local sub = NHS.GetSubdivisionDisplayName and NHS.GetSubdivisionDisplayName() or nil
+-- User-entered subdivision on the house list (replaces unreliable housing API / GUID slice ids).
+local function trimmedManualSubdivisionForSave()
+  ensureSaved()
+  local sub = NHSV.savedHouseListSubdivision
   if type(sub) ~= "string" then
     return nil
   end
@@ -150,7 +134,7 @@ end
 local function persistenceKeysForLookup(stable)
   local keys = {}
   local hood = trimmedNeighborhoodName()
-  local sub = trimmedSubdivisionPersistenceId()
+  local sub = trimmedManualSubdivisionForSave()
   local tailFull = persistenceTailFromHoodAndSub(hood, sub)
   if tailFull ~= "" then
     keys[#keys + 1] = stable .. NHS_PERSIST_KEY_SEP .. tailFull
@@ -310,9 +294,9 @@ function S.SetSavedPresetForEntry(entry, presetIdx, displayLabel, listRowIndex)
     return false
   end
   local hood = trimmedNeighborhoodName()
-  local subId = trimmedSubdivisionPersistenceId()
-  local tail = persistenceTailFromHoodAndSub(hood, subId)
-  local key = S.PersistenceKeyFromStableNeighborhoodSubdivision(stable, hood, subId)
+  local sub = trimmedManualSubdivisionForSave()
+  local tail = persistenceTailFromHoodAndSub(hood, sub)
+  local key = S.PersistenceKeyFromStableNeighborhoodSubdivision(stable, hood, sub)
   ensureSaved()
   wipePersistentKeysSupersededBySave(stable, tail, key)
   NHSV.houseSizes[key] = presetIdx
@@ -325,12 +309,11 @@ function S.SetSavedPresetForEntry(entry, presetIdx, displayLabel, listRowIndex)
     end
     NHSV.houseNeighborhoodNames[key] = hood
   end
-  local subLabel = trimmedSubdivisionDisplayLabel()
   if type(NHSV.houseSubdivisionNames) ~= "table" then
     NHSV.houseSubdivisionNames = {}
   end
-  if subLabel then
-    NHSV.houseSubdivisionNames[key] = subLabel
+  if sub then
+    NHSV.houseSubdivisionNames[key] = sub
   else
     NHSV.houseSubdivisionNames[key] = nil
   end

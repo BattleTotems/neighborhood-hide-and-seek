@@ -6,6 +6,8 @@
 
 local NHS = NeighborhoodHideSeek
 local State = NHS.State
+local Phase = NHS.Phase
+local IsRoundPhase = NHS.IsRoundPhase
 local B = assert(NHS.SeekerModeBridge, "NeighborhoodHideSeek.SeekerModeBridge missing (load order).")
 
 local function ensureSavedVars()
@@ -107,41 +109,56 @@ local function nhsIsRoundLeader()
   return IsInGroup() and UnitIsGroupLeader("player")
 end
 
--- Raid leader only: temporary assistant so the seeker can send RAID_WARNING for [NHS] Found lines.
+-- How many seekers the active game mode requires (minimum 1).
+local function nhsGetRequiredSeekerCount()
+  local id = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
+  if not id then return 1 end
+  local def = NHS.GameModeDefinition and NHS.GameModeDefinition(id)
+  if not def or type(def.seekers) ~= "number" or def.seekers < 1 then return 1 end
+  return def.seekers
+end
+
+-- Raid leader only: temporary assistant so seekers can send RAID_WARNING for [NHS] Found lines.
 local function nhsLeaderTryPromoteSeekerForRaidWarn()
-  if not nhsIsRoundLeader() or not IsInRaid() or not State.gameLockedSeekerKey then
+  if not nhsIsRoundLeader() or not IsInRaid() or #State.gameLockedSeekerKeys == 0 then
     return
   end
-  local key = State.gameLockedSeekerKey
-  local unit = nhsFindGroupUnitForSortKey(key)
-  if not unit or not UnitExists(unit) then
-    return
-  end
-  if UnitIsGroupLeader(unit) or (UnitIsRaidOfficer and UnitIsRaidOfficer(unit)) then
-    return
-  end
-  if PromoteToAssistant then
-    pcall(PromoteToAssistant, unit)
-  end
-  if UnitIsRaidOfficer and UnitIsRaidOfficer(unit) and not UnitIsGroupLeader(unit) then
-    State.nhsSeekerPromotedAsAssistantKey = key
+  for _, key in ipairs(State.gameLockedSeekerKeys) do
+    local unit = nhsFindGroupUnitForSortKey(key)
+    if unit and UnitExists(unit) then
+      if not UnitIsGroupLeader(unit) and not (UnitIsRaidOfficer and UnitIsRaidOfficer(unit)) then
+        if PromoteToAssistant then
+          pcall(PromoteToAssistant, unit)
+        end
+        if UnitIsRaidOfficer and UnitIsRaidOfficer(unit) and not UnitIsGroupLeader(unit) then
+          local alreadyTracked = false
+          for _, k in ipairs(State.nhsSeekerPromotedAsAssistantKeys) do
+            if k == key then alreadyTracked = true; break end
+          end
+          if not alreadyTracked then
+            State.nhsSeekerPromotedAsAssistantKeys[#State.nhsSeekerPromotedAsAssistantKeys + 1] = key
+          end
+        end
+      end
+    end
   end
 end
 
 local function nhsLeaderDemoteSeekerAssistantIfWePromoted()
-  if not State.nhsSeekerPromotedAsAssistantKey then
+  if #State.nhsSeekerPromotedAsAssistantKeys == 0 then
     return
   end
-  local key = State.nhsSeekerPromotedAsAssistantKey
-  State.nhsSeekerPromotedAsAssistantKey = nil
   if nhsIsRoundLeader() and IsInRaid() then
-    local unit = nhsFindGroupUnitForSortKey(key)
-    if unit and UnitExists(unit) and not UnitIsGroupLeader(unit) then
-      if UnitIsRaidOfficer and UnitIsRaidOfficer(unit) and DemoteAssistant then
-        pcall(DemoteAssistant, unit)
+    for _, key in ipairs(State.nhsSeekerPromotedAsAssistantKeys) do
+      local unit = nhsFindGroupUnitForSortKey(key)
+      if unit and UnitExists(unit) and not UnitIsGroupLeader(unit) then
+        if UnitIsRaidOfficer and UnitIsRaidOfficer(unit) and DemoteAssistant then
+          pcall(DemoteAssistant, unit)
+        end
       end
     end
   end
+  wipe(State.nhsSeekerPromotedAsAssistantKeys)
 end
 
 -- Solo (not in a group) may use game controls; in a group only the leader may.
@@ -171,7 +188,11 @@ local function nhsStartBuiltInCountdown(seconds)
   return false, "C_PartyInfo.DoCountdown not available on this client."
 end
 
+-- Only the party/raid leader should cancel (DoCountdown(0) spams group chat if every member calls it).
 local function nhsStopPartyCountdown()
+  if IsInGroup() and not nhsIsRoundLeader() then
+    return
+  end
   if C_PartyInfo and C_PartyInfo.DoCountdown then
     pcall(C_PartyInfo.DoCountdown, 0)
   end
@@ -224,6 +245,7 @@ local function nhsPastRoundsSnapshotForSave()
     if type(r) == "table" then
       out[#out + 1] = {
         house = r.house or "",
+        mode = r.mode or "",
         seeker = r.seeker or "",
         hidden = r.hidden or "",
         found = r.found or "",
@@ -242,6 +264,7 @@ local function nhsRestorePastRoundsFromSave(list)
     if type(pr) == "table" then
       State.pastRounds[#State.pastRounds + 1] = {
         house = pr.house or "",
+        mode = pr.mode or "",
         seeker = pr.seeker or "",
         hidden = pr.hidden or "",
         found = pr.found or "",
@@ -283,22 +306,24 @@ local function nhsPersistGameSessionToSaved()
     for i = 1, #State.gameHouseHistory do
       houseHist[i] = State.gameHouseHistory[i]
     end
+    local candidateKeySnap = {}
+    for i, k in ipairs(State.gameCandidateKeys) do candidateKeySnap[i] = k end
+    local lockedKeySnap = {}
+    for i, k in ipairs(State.gameLockedSeekerKeys) do lockedKeySnap[i] = k end
     NHSV.gameRounds = {
       sessionActive = true,
       clientMode = "leader",
-      phase = State.gamePhase,
+      phase = State.phase,
+      gameMode = State.gameMode,
       houseListSource = State.gameSessionHouseListSource or "pending",
-      roundPhase = State.roundPhase,
       houseCandidateKey = State.gameHouseCandidateKey,
       houseCandidateDisplay = State.gameHouseCandidateDisplay,
       houseLockedKey = State.gameLockedHouseKey,
       houseLockedDisplay = State.gameLockedHouseDisplay,
       houseRotationKeys = houseRotKeys,
       houseHistory = houseHist,
-      candidateKey = State.gameCandidateKey,
-      candidateDisplay = State.gameCandidateDisplay,
-      lockedKey = State.gameLockedSeekerKey,
-      lockedDisplay = State.gameLockedSeekerDisplay,
+      candidateKeys = candidateKeySnap,
+      lockedKeys = lockedKeySnap,
       seekerHistory = hist,
       rotationKeys = rotKeys,
       foundOrder = foundSnap,
@@ -306,7 +331,7 @@ local function nhsPersistGameSessionToSaved()
     }
     return
   end
-  if State.remoteSessionActive or State.remoteRoundActive then
+  if State.remoteSessionActive then
     local houseHist = {}
     for i = 1, #State.gameHouseHistory do
       houseHist[i] = State.gameHouseHistory[i]
@@ -315,15 +340,16 @@ local function nhsPersistGameSessionToSaved()
     for i = 1, #State.gameSeekerHistory do
       seekHist[i] = State.gameSeekerHistory[i]
     end
+    local remoteSeekerKeySnap = {}
+    for i, k in ipairs(State.remoteSeekerKeys) do remoteSeekerKeySnap[i] = k end
     NHSV.gameRounds = {
       sessionActive = true,
       clientMode = "follower",
       remoteSessionActive = State.remoteSessionActive and true or false,
-      remoteRoundActive = State.remoteRoundActive and true or false,
-      remoteSeekerKey = State.remoteSeekerKey,
+      phase = State.phase,
+      remoteSeekerKeys = remoteSeekerKeySnap,
       remoteHouseDisplay = State.remoteHouseDisplay,
-      remoteLeaderGamePhase = State.remoteLeaderGamePhase,
-      roundPhase = State.roundPhase,
+      remoteGameMode = State.remoteGameMode,
       houseHistory = houseHist,
       seekerHistory = seekHist,
       foundOrder = foundSnap,
@@ -350,25 +376,47 @@ local function nhsHydrateGameSessionFromSaved()
     end
     State.gameSessionActive = false
     State.remoteSessionActive = s.remoteSessionActive and true or false
-    State.remoteRoundActive = s.remoteRoundActive and true or false
-    State.remoteSeekerKey = s.remoteSeekerKey
-    State.remoteHouseDisplay = s.remoteHouseDisplay
-    local rgp = s.remoteLeaderGamePhase
-    if
-      type(rgp) == "string"
-      and (rgp == "pick_house" or rgp == "pick_seeker" or rgp == "round_active" or rgp == "none")
-    then
-      State.remoteLeaderGamePhase = rgp
-    elseif State.remoteRoundActive then
-      State.remoteLeaderGamePhase = "round_active"
-    elseif State.remoteHouseDisplay and State.remoteHouseDisplay ~= "" then
-      State.remoteLeaderGamePhase = "pick_seeker"
-    elseif State.remoteSessionActive then
-      State.remoteLeaderGamePhase = "pick_house"
-    else
-      State.remoteLeaderGamePhase = "none"
+    -- Restore remoteSeekerKeys: new format is a list; legacy is a single string remoteSeekerKey.
+    wipe(State.remoteSeekerKeys)
+    if type(s.remoteSeekerKeys) == "table" then
+      for _, k in ipairs(s.remoteSeekerKeys) do
+        if type(k) == "string" and k ~= "" then
+          State.remoteSeekerKeys[#State.remoteSeekerKeys + 1] = k
+        end
+      end
+    elseif type(s.remoteSeekerKey) == "string" and s.remoteSeekerKey ~= "" then
+      State.remoteSeekerKeys[1] = s.remoteSeekerKey
     end
-    State.roundPhase = (type(s.roundPhase) == "string" and s.roundPhase ~= "") and s.roundPhase or "none"
+    State.remoteHouseDisplay = s.remoteHouseDisplay
+    -- Determine phase: new saves store s.phase; legacy saves use remoteLeaderGamePhase + roundPhase + remoteRoundActive.
+    local ph = s.phase
+    if type(ph) == "string" and (ph == Phase.PICK_GAME_MODE or ph == Phase.PICK_HOUSE or ph == Phase.PICK_SEEKER or IsRoundPhase(ph)) then
+      State.phase = ph
+    elseif type(ph) == "string" and ph == "round_active" then
+      local rp = s.roundPhase
+      State.phase = IsRoundPhase(rp) and rp or Phase.PENDING
+    else
+      -- Legacy migration
+      local rra = s.remoteRoundActive
+      local rlgp = s.remoteLeaderGamePhase
+      local rph = s.roundPhase
+      if rra then
+        State.phase = IsRoundPhase(rph) and rph or Phase.PENDING
+      elseif rlgp == Phase.PICK_SEEKER or rlgp == Phase.PICK_HOUSE or rlgp == Phase.PICK_GAME_MODE then
+        State.phase = rlgp
+      elseif State.remoteHouseDisplay and State.remoteHouseDisplay ~= "" then
+        State.phase = Phase.PICK_GAME_MODE  -- house known from old save; best guess is game mode step
+      elseif State.remoteSessionActive then
+        State.phase = Phase.PICK_HOUSE
+      else
+        State.phase = Phase.NONE
+      end
+    end
+    if type(s.remoteGameMode) == "string" and NHS.IsValidGameMode and NHS.IsValidGameMode(s.remoteGameMode) then
+      State.remoteGameMode = s.remoteGameMode
+    else
+      State.remoteGameMode = nil
+    end
     wipe(State.gameHouseHistory)
     for i, v in ipairs(s.houseHistory or {}) do
       State.gameHouseHistory[i] = v
@@ -379,7 +427,6 @@ local function nhsHydrateGameSessionFromSaved()
     end
     nhsRestoreFoundFromSnapshot(s.foundOrder)
     nhsRestorePastRoundsFromSave(s.pastRounds)
-    State.gamePhase = "none"
     State.gameHouseCandidateKey = nil
     State.gameHouseCandidateDisplay = nil
     State.gameLockedHouseKey = nil
@@ -387,10 +434,8 @@ local function nhsHydrateGameSessionFromSaved()
     State.gameLockedHouseLiveEntry = nil
     State.gameLockedHouseLiveIndex = nil
     wipe(State.gameHouseRotationUsed)
-    State.gameCandidateKey = nil
-    State.gameCandidateDisplay = nil
-    State.gameLockedSeekerKey = nil
-    State.gameLockedSeekerDisplay = nil
+    wipe(State.gameCandidateKeys)
+    wipe(State.gameLockedSeekerKeys)
     wipe(State.gameRotationUsed)
     NHS.SessionHudUpdate()
     return
@@ -414,11 +459,29 @@ local function nhsHydrateGameSessionFromSaved()
       State.gameSessionHouseListSource = "saved"
     end
   end
-  local ph = s.phase
-  if ph == "round_active" or ph == "pick_seeker" or ph == "pick_house" then
-    State.gamePhase = ph
+  -- Determine phase: new saves store unified phase; legacy saves use phase="round_active" + separate roundPhase.
+  do
+    local ph = s.phase
+    if ph == "round_active" then
+      -- Legacy: promote roundPhase to unified phase
+      local rp = s.roundPhase
+      State.phase = IsRoundPhase(rp) and rp or Phase.PENDING
+    elseif ph == Phase.PICK_SEEKER or ph == Phase.PICK_HOUSE or ph == Phase.PICK_GAME_MODE then
+      State.phase = ph
+    elseif IsRoundPhase(ph) then
+      State.phase = ph
+    else
+      State.phase = Phase.PICK_HOUSE
+    end
+  end
+  if type(s.gameMode) == "string" and NHS.IsValidGameMode and NHS.IsValidGameMode(s.gameMode) then
+    State.gameMode = s.gameMode
   else
-    State.gamePhase = "pick_house"
+    State.gameMode = nil
+  end
+  -- PICK_GAME_MODE (second phase) requires a confirmed house.
+  if State.phase == Phase.PICK_GAME_MODE and not (State.gameLockedHouseKey or State.gameLockedHouseDisplay) then
+    State.phase = Phase.PICK_HOUSE
   end
   State.gameHouseCandidateKey = s.houseCandidateKey
   State.gameHouseCandidateDisplay = s.houseCandidateDisplay
@@ -434,17 +497,38 @@ local function nhsHydrateGameSessionFromSaved()
   end
   State.gameLockedHouseLiveEntry = nil
   State.gameLockedHouseLiveIndex = nil
-  if State.gamePhase == "pick_seeker" and not (State.gameLockedHouseKey or State.gameLockedHouseDisplay) then
-    State.gamePhase = "pick_house"
+  if State.phase == Phase.PICK_SEEKER and not (State.gameLockedHouseKey or State.gameLockedHouseDisplay) then
+    State.phase = Phase.PICK_HOUSE
   end
-  if State.gamePhase == "round_active" and not (State.gameLockedHouseKey or State.gameLockedHouseDisplay) then
-    State.gamePhase = "pick_house"
-    State.roundPhase = "none"
+  -- PICK_SEEKER (third phase) requires a game mode too.
+  if State.phase == Phase.PICK_SEEKER and not State.gameMode then
+    State.phase = Phase.PICK_GAME_MODE
   end
-  State.gameCandidateKey = s.candidateKey
-  State.gameCandidateDisplay = s.candidateDisplay
-  State.gameLockedSeekerKey = s.lockedKey
-  State.gameLockedSeekerDisplay = s.lockedDisplay
+  if IsRoundPhase(State.phase) and not (State.gameLockedHouseKey or State.gameLockedHouseDisplay) then
+    State.phase = Phase.PICK_HOUSE
+  end
+  -- Restore gameCandidateKeys: new format is a list; legacy was a single candidateKey string.
+  wipe(State.gameCandidateKeys)
+  if type(s.candidateKeys) == "table" then
+    for _, k in ipairs(s.candidateKeys) do
+      if type(k) == "string" and k ~= "" then
+        State.gameCandidateKeys[#State.gameCandidateKeys + 1] = k
+      end
+    end
+  elseif type(s.candidateKey) == "string" and s.candidateKey ~= "" then
+    State.gameCandidateKeys[1] = s.candidateKey
+  end
+  -- Restore gameLockedSeekerKeys: new format is a list; legacy was a single lockedKey string.
+  wipe(State.gameLockedSeekerKeys)
+  if type(s.lockedKeys) == "table" then
+    for _, k in ipairs(s.lockedKeys) do
+      if type(k) == "string" and k ~= "" then
+        State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = k
+      end
+    end
+  elseif type(s.lockedKey) == "string" and s.lockedKey ~= "" then
+    State.gameLockedSeekerKeys[1] = s.lockedKey
+  end
   wipe(State.gameSeekerHistory)
   for i, v in ipairs(s.seekerHistory or {}) do
     State.gameSeekerHistory[i] = v
@@ -453,26 +537,19 @@ local function nhsHydrateGameSessionFromSaved()
   for _, k in ipairs(s.rotationKeys or {}) do
     State.gameRotationUsed[k] = true
   end
-  if State.gamePhase == "round_active" then
-    local rp = s.roundPhase
-    if rp == "pending" or rp == "hiding" or rp == "searching" then
-      State.roundPhase = rp
-    else
-      State.roundPhase = "pending"
-    end
-  else
-    State.roundPhase = "none"
-  end
   nhsRestoreFoundFromSnapshot(s.foundOrder)
   nhsRestorePastRoundsFromSave(s.pastRounds)
   NHS.SessionHudUpdate()
+  if NHS.SyncHiddenRangePoll then
+    NHS.SyncHiddenRangePoll()
+  end
 end
 
 local function nhsResetGameSession()
   nhsStopPartyCountdown()
   nhsLeaderDemoteSeekerAssistantIfWePromoted()
   State.gameSessionActive = false
-  State.gamePhase = "none"
+  State.phase = Phase.NONE
   State.gameSessionHouseListSource = nil
   State.gameHouseCandidateKey = nil
   State.gameHouseCandidateDisplay = nil
@@ -483,17 +560,18 @@ local function nhsResetGameSession()
   wipe(State.gameHouseHistory)
   wipe(State.gameHouseRotationUsed)
   State.remoteHouseDisplay = nil
-  State.gameCandidateKey = nil
-  State.gameCandidateDisplay = nil
-  State.gameLockedSeekerKey = nil
-  State.gameLockedSeekerDisplay = nil
+  wipe(State.gameCandidateKeys)
+  wipe(State.gameLockedSeekerKeys)
   wipe(State.gameSeekerHistory)
   wipe(State.gameRotationUsed)
-  State.roundPhase = "none"
-  State.remoteRoundActive = false
-  State.remoteSeekerKey = nil
+  wipe(State.remoteSeekerKeys)
   State.remoteSessionActive = false
-  State.remoteLeaderGamePhase = "none"
+  if NHS.ClearRoundGameMode then
+    NHS.ClearRoundGameMode()
+  else
+    State.gameMode = nil
+    State.remoteGameMode = nil
+  end
   clearFound()
   if State.seekerMode and NHS.SetSeekerMode then
     NHS.SetSeekerMode(false)
@@ -501,6 +579,9 @@ local function nhsResetGameSession()
   nhsArchiveCompletedPastRoundsForReload()
   NHSV.gameRounds = nil
   NHS.SessionHudUpdate()
+  if NHS.SyncHiddenRangePoll then
+    NHS.SyncHiddenRangePoll()
+  end
 end
 
 local function nhsRandomSeekerEligible()
@@ -508,15 +589,44 @@ local function nhsRandomSeekerEligible()
   if #roster == 0 then
     return nil, "No players in group."
   end
+  -- Build a set of already-picked candidates so they are excluded from this pick.
+  local pickedSet = {}
+  for _, k in ipairs(State.gameCandidateKeys) do
+    pickedSet[k] = true
+  end
+  -- Hider mode (e.g. Chosen One): the seeker rotation is irrelevant — anyone in the
+  -- group can be the hider regardless of who sought in previous rounds.
+  if NHS.IsHiderMode and NHS.IsHiderMode() then
+    local eligible = {}
+    for _, m in ipairs(roster) do
+      if not pickedSet[m.key] then
+        eligible[#eligible + 1] = m
+      end
+    end
+    if #eligible == 0 then
+      return nil, "No eligible players (group is empty)."
+    end
+    return eligible, nil
+  end
+  -- Normal mode: honour the seeker rotation so everyone gets a turn.
   local eligible = {}
   for _, m in ipairs(roster) do
-    if not State.gameRotationUsed[m.key] then
+    if not State.gameRotationUsed[m.key] and not pickedSet[m.key] then
       eligible[#eligible + 1] = m
     end
   end
   if #eligible == 0 then
+    -- Reset rotation but still exclude already-picked candidates.
     wipe(State.gameRotationUsed)
-    eligible = roster
+    eligible = {}
+    for _, m in ipairs(roster) do
+      if not pickedSet[m.key] then
+        eligible[#eligible + 1] = m
+      end
+    end
+  end
+  if #eligible == 0 then
+    return nil, "No eligible players (all picked for this round or group is empty)."
   end
   return eligible, nil
 end
@@ -533,21 +643,23 @@ local function nhsLocalPlayerSortKey()
   return nhsUnitSortKey("player")
 end
 
--- Who may send "mark found" sync: leader uses locked seeker key; followers use remote seeker key.
-local function nhsGetDesignatedSeekerKey()
-  -- Follower: prefer remoteRoundActive; also allow searching phase if round flag desynced briefly.
-  if State.remoteSeekerKey then
-    if State.remoteRoundActive
-      or (State.remoteSessionActive and State.roundPhase == "searching") then
-      return State.remoteSeekerKey
-    end
+-- Returns the full list of designated seeker keys for the active round (empty table if none).
+local function nhsGetDesignatedSeekerKeys()
+  if State.remoteSessionActive and IsRoundPhase(State.phase) and #State.remoteSeekerKeys > 0 then
+    return State.remoteSeekerKeys
   end
-  if State.gameSessionActive and State.gamePhase == "round_active" and State.gameLockedSeekerKey then
+  if State.gameSessionActive and IsRoundPhase(State.phase) and #State.gameLockedSeekerKeys > 0 then
     if not IsInGroup() or nhsIsRoundLeader() then
-      return State.gameLockedSeekerKey
+      return State.gameLockedSeekerKeys
     end
   end
-  return nil
+  return {}
+end
+
+-- Convenience: returns the first (primary) seeker key, or nil. Used for single-seeker paths and legacy sync.
+local function nhsGetDesignatedSeekerKey()
+  local keys = nhsGetDesignatedSeekerKeys()
+  return keys[1] or nil
 end
 
 -- Chat sender (and sometimes local sort key) can differ from sync/roster keys: same-realm short
@@ -641,18 +753,16 @@ local function nhsLocalPlayerIsDesignatedSeeker()
   if not me then
     return false
   end
-  local dsk = nhsGetDesignatedSeekerKey()
-  if not dsk then
-    return false
+  local keys = nhsGetDesignatedSeekerKeys()
+  for _, sk in ipairs(keys) do
+    if nhsRosterIdentityEqual(me, sk) then
+      return true
+    end
   end
-  return nhsRosterIdentityEqual(me, dsk)
+  return false
 end
 
 local function nhsChatSenderIsDesignatedSeeker(senderName)
-  local seeker = nhsGetDesignatedSeekerKey()
-  if not seeker then
-    return false
-  end
   if type(senderName) ~= "string" or senderName == "" then
     return false
   end
@@ -660,15 +770,25 @@ local function nhsChatSenderIsDesignatedSeeker(senderName)
   if sk == "" then
     return false
   end
-  return nhsRosterIdentityEqual(sk, seeker)
+  local keys = nhsGetDesignatedSeekerKeys()
+  for _, k in ipairs(keys) do
+    if nhsRosterIdentityEqual(sk, k) then
+      return true
+    end
+  end
+  return false
 end
 
-local function nhsPastRoundHiddenSnapshotString(seekerKey)
-  seekerKey = seekerKey or nhsGetDesignatedSeekerKey()
+local function nhsPastRoundHiddenSnapshotString(roleKeys)
+  roleKeys = roleKeys or nhsGetDesignatedSeekerKeys()
+  local roleSet = {}
+  for _, k in ipairs(roleKeys) do
+    roleSet[k] = true
+  end
   local roster = nhsGetGroupRoster()
   local names = {}
   for _, m in ipairs(roster) do
-    if (seekerKey == nil or m.key ~= seekerKey) and not State.foundSet[m.key] then
+    if not roleSet[m.key] and not State.foundSet[m.key] then
       names[#names + 1] = Ambiguate(m.key, "short")
     end
   end
@@ -685,29 +805,36 @@ local function nhsPastRoundFoundSnapshotString()
   for i = 1, #State.foundOrder do
     names[#names + 1] = Ambiguate(State.foundOrder[i], "short")
   end
-  table.sort(names)
   local n = #names
   if n == 0 then
     return "Found (0): —"
   end
-  return ("Found (%d): %s"):format(n, NHS.SessionHudCommaList(names))
+  return ("Found (%d): %s"):format(n, NHS.SessionHudCommaList(names, 14, false))
 end
 
 local function nhsPastRoundSeekerDisplay()
-  if State.remoteRoundActive and State.remoteSeekerKey then
-    return Ambiguate(State.remoteSeekerKey, "short")
+  if State.remoteSessionActive and IsRoundPhase(State.phase) and #State.remoteSeekerKeys > 0 then
+    local names = {}
+    for _, k in ipairs(State.remoteSeekerKeys) do
+      names[#names + 1] = Ambiguate(k, "short")
+    end
+    return table.concat(names, ", ")
   end
-  if State.gameSessionActive and State.gamePhase == "round_active" and State.gameLockedSeekerDisplay then
-    return State.gameLockedSeekerDisplay
+  if State.gameSessionActive and IsRoundPhase(State.phase) and #State.gameLockedSeekerKeys > 0 then
+    local names = {}
+    for _, k in ipairs(State.gameLockedSeekerKeys) do
+      names[#names + 1] = Ambiguate(k, "short")
+    end
+    return table.concat(names, ", ")
   end
   return "—"
 end
 
 local function nhsPastRoundHouseAndKey()
-  if State.gameSessionActive and State.gamePhase == "round_active" then
+  if State.gameSessionActive and IsRoundPhase(State.phase) then
     return State.gameLockedHouseDisplay, State.gameLockedHouseKey
   end
-  if State.remoteRoundActive and State.remoteHouseDisplay and State.remoteHouseDisplay ~= "" then
+  if State.remoteSessionActive and IsRoundPhase(State.phase) and State.remoteHouseDisplay and State.remoteHouseDisplay ~= "" then
     return State.remoteHouseDisplay, nil
   end
   return nil, nil
@@ -718,20 +845,27 @@ local function nhsAppendPastRoundSnapshotIfActiveRound()
   if not NHS.SessionHudIsActive() then
     return
   end
-  local inLeaderRound = State.gameSessionActive and State.gamePhase == "round_active"
-  local inFollowerRound = State.remoteRoundActive
-  if not inLeaderRound and not inFollowerRound then
+  if not IsRoundPhase(State.phase) then
+    return
+  end
+  if not State.gameSessionActive and not State.remoteSessionActive then
     return
   end
   local houseDisp = nhsPastRoundHouseAndKey()
   if not houseDisp or houseDisp == "" then
     houseDisp = "—"
   end
-  local seekerKey = nhsGetDesignatedSeekerKey()
+  local seekerKeys = nhsGetDesignatedSeekerKeys()
+  local modeLine = "Mode: —"
+  if NHS.PastRoundModeSnapshotString then
+    modeLine = NHS.PastRoundModeSnapshotString()
+  end
+  local roleLabel = "Seeker"
   State.pastRounds[#State.pastRounds + 1] = {
     house = ("House: %s"):format(houseDisp),
-    seeker = ("Seeker: %s"):format(nhsPastRoundSeekerDisplay()),
-    hidden = nhsPastRoundHiddenSnapshotString(seekerKey),
+    mode = modeLine,
+    seeker = ("%s: %s"):format(roleLabel, nhsPastRoundSeekerDisplay()),
+    hidden = nhsPastRoundHiddenSnapshotString(seekerKeys),
     found = nhsPastRoundFoundSnapshotString(),
   }
 end
@@ -742,33 +876,36 @@ local function nhsDebugFoundSyncDump(reason, extra)
   local dsk = nhsGetDesignatedSeekerKey()
   local ca = me and nhsCanonicalGroupSortKey(me) or nil
   local cb = dsk and nhsCanonicalGroupSortKey(dsk) or nil
-  local ideq = (me and dsk) and nhsRosterIdentityEqual(me, dsk) or false
+  local ideq = nhsLocalPlayerIsDesignatedSeeker()
   print("|cffffcc00[NHS] Found-sync debug|r " .. tostring(reason or "?"))
   if extra and extra ~= "" then
     print("|cffffcc00[NHS]|r  extra: " .. tostring(extra))
   end
   print("|cffffcc00[NHS]|r  isLeader=" .. tostring(nhsIsRoundLeader()) .. " inGroup=" .. tostring(IsInGroup()))
   print("|cffffcc00[NHS]|r  localPlayerKey=" .. tostring(me))
-  print("|cffffcc00[NHS]|r  designatedSeekerKey(GetDesignatedSeekerKey)=" .. tostring(dsk))
+  print("|cffffcc00[NHS]|r  designatedSeekerKey(primary)=" .. tostring(dsk))
   print("|cffffcc00[NHS]|r  canonical(local)=" .. tostring(ca) .. " | canonical(designated)=" .. tostring(cb))
-  print("|cffffcc00[NHS]|r  RosterIdentityEqual(local, designated)=" .. tostring(ideq))
+  print("|cffffcc00[NHS]|r  LocalPlayerIsDesignatedSeeker=" .. tostring(ideq))
   print(
     "|cffffcc00[NHS]|r  remoteSession="
       .. tostring(State.remoteSessionActive)
-      .. " remoteRound="
-      .. tostring(State.remoteRoundActive)
-      .. " roundPhase="
-      .. tostring(State.roundPhase)
+      .. " phase="
+      .. tostring(State.phase)
   )
-  print("|cffffcc00[NHS]|r  State.remoteSeekerKey(raw)=" .. tostring(State.remoteSeekerKey))
-  print(
-    "|cffffcc00[NHS]|r  gameSession="
-      .. tostring(State.gameSessionActive)
-      .. " gamePhase="
-      .. tostring(State.gamePhase)
-      .. " lockedSeeker="
-      .. tostring(State.gameLockedSeekerKey)
-  )
+  do
+    local rsk = {}
+    for _, k in ipairs(State.remoteSeekerKeys) do rsk[#rsk + 1] = tostring(k) end
+    print("|cffffcc00[NHS]|r  State.remoteSeekerKeys=" .. (#rsk > 0 and table.concat(rsk, ", ") or "(none)"))
+  end
+  do
+    local lsk = {}
+    for _, k in ipairs(State.gameLockedSeekerKeys) do lsk[#lsk + 1] = tostring(k) end
+    print(
+      "|cffffcc00[NHS]|r  gameSession="
+        .. tostring(State.gameSessionActive)
+        .. " lockedSeekerKeys=" .. (#lsk > 0 and table.concat(lsk, ", ") or "(none)")
+    )
+  end
   print("|cffffcc00[NHS]|r  Group roster (list we match keys against):")
   local roster = nhsGetGroupRoster()
   if #roster == 0 then
@@ -796,6 +933,8 @@ NHS.UnitSortKey = nhsUnitSortKey
 NHS.UnitIsInGroupRoster = nhsUnitIsInGroupRoster
 NHS.LocalPlayerSortKey = nhsLocalPlayerSortKey
 NHS.GetDesignatedSeekerKey = nhsGetDesignatedSeekerKey
+NHS.GetDesignatedSeekerKeys = nhsGetDesignatedSeekerKeys
+NHS.GetRequiredSeekerCount = nhsGetRequiredSeekerCount
 NHS.LocalPlayerIsDesignatedSeeker = nhsLocalPlayerIsDesignatedSeeker
 NHS.GroupSortKeysEquivalent = nhsGroupSortKeysEquivalent
 NHS.CanonicalGroupSortKey = nhsCanonicalGroupSortKey
@@ -821,6 +960,7 @@ if bmf then
   bmf.nhsLeaderDemoteSeekerAssistantIfWePromoted = nhsLeaderDemoteSeekerAssistantIfWePromoted
   bmf.nhsAppendPastRoundSnapshotIfActiveRound = nhsAppendPastRoundSnapshotIfActiveRound
   bmf.nhsRandomSeekerEligible = nhsRandomSeekerEligible
+  bmf.nhsGetRequiredSeekerCount = nhsGetRequiredSeekerCount
 end
 
 local gsb = NHS.GroupSyncBridge
@@ -836,5 +976,4 @@ if gsb then
   gsb.nhsIsRoundLeader = nhsIsRoundLeader
   gsb.nhsPersistGameSessionToSaved = nhsPersistGameSessionToSaved
   gsb.nhsAppendPastRoundSnapshotIfActiveRound = nhsAppendPastRoundSnapshotIfActiveRound
-  gsb.nhsStopPartyCountdown = nhsStopPartyCountdown
 end

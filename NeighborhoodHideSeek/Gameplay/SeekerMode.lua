@@ -7,13 +7,16 @@
 local NHS = NeighborhoodHideSeek
 local B = assert(NHS.SeekerModeBridge, "NeighborhoodHideSeek.SeekerModeBridge missing (load order).")
 local State = NHS.State
+local Phase = NHS.Phase
+local IsRoundPhase = NHS.IsRoundPhase
 
 --[[
   Nameplate-related CVars snapshotted in seeker mode (Names / Nameplates options).
   Midnight (12.x): friendly player nameplates use nameplateShowFriendlyPlayers (and
   nameplateShowFriendlyPlayerMinions); nameplateShowFriends is legacy. Friendly NPC
   plates use nameplateShowFriendlyNpcs (older clients used nameplateShowFriendlyNPCs).
-  Floating friendly player names: UnitNameFriendlyPlayerName (and UnitNameFriendlyMinionName).
+  Floating player names: UnitNameFriendlyPlayerName / UnitNameEnemyPlayerName (and minion
+  variants). Party/raid hiders are usually friendly; other players in the neighborhood use enemy.
   We still Set legacy keys for older clients (pcall in hideAllNameplates).
 ]]
 local NAMEPLATE_CVARS = {
@@ -22,6 +25,8 @@ local NAMEPLATE_CVARS = {
   "nameplateShowFriends",
   "nameplateShowFriendlyPlayers",
   "nameplateShowFriendlyPlayerMinions",
+  "nameplateShowEnemyPlayers",
+  "nameplateShowEnemyPlayerMinions",
   "nameplateShowSelf",
   "nameplateShowFriendlyNPCs",
   "nameplateShowFriendlyNpcs",
@@ -45,6 +50,8 @@ local NAMEPLATE_CVARS = {
   "NameplatePersonalShowWithTarget",
   "UnitNameFriendlyPlayerName",
   "UnitNameFriendlyMinionName",
+  "UnitNameEnemyPlayerName",
+  "UnitNameEnemyMinionName",
   "nameplateSimplifiedTypes",
 }
 
@@ -161,7 +168,8 @@ local function setSeekerMode(enabled)
     seekerUiSuppressStop()
     applyNameplateSnapshot(State.savedNameplateCVars)
     State.savedNameplateCVars = nil
-    B.clearFound()
+    -- Do NOT clear found here — found state belongs to the game round, not seeker mode.
+    -- clearFound() is called explicitly at round start and round end.
     State.selectedNeighborID = nil
     State.selectedLabel = nil
     State.selectedEntry = nil
@@ -185,28 +193,33 @@ end
 -- Enter seeker mode: with no session/synced round, allow (preview nameplate/UI options). During a
 -- session, only the designated seeker may enter, and only in Hiding or Searching (not pick-seeker,
 -- preparing/pending, etc.).
+-- Exception: Conquer mode — all players use seeker mode from the start of hiding/searching.
 local function nhsMayEnterSeekerMode()
-  if not State.gameSessionActive and not State.remoteSessionActive and not State.remoteRoundActive then
+  if not State.gameSessionActive and not State.remoteSessionActive then
     return true
   end
-  if (State.gameSessionActive and (State.gamePhase == "pick_house" or State.gamePhase == "pick_seeker"))
-    or (State.remoteSessionActive and not State.remoteRoundActive) then
+  if not IsRoundPhase(State.phase) then
     return false
   end
-  if not NHS.LocalPlayerIsDesignatedSeeker() then
+  if State.phase ~= Phase.HIDING and State.phase ~= Phase.SEARCHING then
     return false
   end
-  return State.roundPhase == "hiding" or State.roundPhase == "searching"
+  local modeId = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
+  if modeId == "conquer" then
+    return true  -- every player is in seeker mode in Conquer
+  end
+  return NHS.LocalPlayerIsDesignatedSeeker() == true
 end
 
 NHS.MayEnterSeekerMode = nhsMayEnterSeekerMode
 
--- After SetSeekerMode exists: auto-enable seeker mode in Hiding / Searching for the designated seeker.
+-- After SetSeekerMode exists: auto-enable seeker mode in Hiding / Searching.
+-- In Conquer mode every player activates seeker mode; in other modes only the designated seeker does.
 local function nhsSeekerAutoModeSyncToPhase()
-  if State.roundPhase ~= "hiding" and State.roundPhase ~= "searching" then
+  if State.phase ~= Phase.HIDING and State.phase ~= Phase.SEARCHING then
     return
   end
-  if not NHS.LocalPlayerIsDesignatedSeeker() or not nhsMayEnterSeekerMode() then
+  if not nhsMayEnterSeekerMode() then
     return
   end
   if State.seekerMode then

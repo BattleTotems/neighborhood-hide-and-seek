@@ -38,6 +38,9 @@ local function ensureSavedVars()
   if type(NHSV.houseSubdivisionNames) ~= "table" then
     NHSV.houseSubdivisionNames = {}
   end
+  if type(NHSV.savedHouseListSubdivision) ~= "string" then
+    NHSV.savedHouseListSubdivision = ""
+  end
   if type(NHSV.neighborhoodSliceLabels) ~= "table" then
     NHSV.neighborhoodSliceLabels = {}
   end

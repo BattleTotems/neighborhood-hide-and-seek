@@ -49,6 +49,23 @@ function NHS.RestoreEmbeddedSettingsFrames()
       htpf._nhsCloseButton:Show()
     end
   end
+  local gmif = UI.gameModesInfoFrame
+  if gmif and gmif:GetParent() ~= UIParent then
+    gmif:Hide()
+    gmif:SetParent(UIParent)
+    gmif:ClearAllPoints()
+    if NHSV.gameModesInfoFramePoint then
+      local hp = NHSV.gameModesInfoFramePoint
+      gmif:SetPoint(hp[1], UIParent, hp[2], hp[3], hp[4])
+    else
+      gmif:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    end
+    gmif:SetFrameStrata("DIALOG")
+    gmif:SetFrameLevel(207)
+    if gmif._nhsCloseButton then
+      gmif._nhsCloseButton:Show()
+    end
+  end
 end
 
 local function nhsAboutOpenMainClick()

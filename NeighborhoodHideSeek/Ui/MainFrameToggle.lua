@@ -22,6 +22,7 @@ function NHS.AnyMainFloatingPanelOpen(UI)
     or (UI.gameplayRandomPickFrame and UI.gameplayRandomPickFrame:IsShown())
     or (UI.gameplaySeekerPickFrame and UI.gameplaySeekerPickFrame:IsShown())
     or (UI.howToPlayFrame and UI.howToPlayFrame:IsShown())
+    or (UI.gameModesInfoFrame and UI.gameModesInfoFrame:IsShown())
     or (UI.savedSizesFrame and UI.savedSizesFrame:IsShown())
 end
 
@@ -69,6 +70,9 @@ function NHS.HideMainFloatingPanels(UI)
   end
   if UI.howToPlayFrame and UI.howToPlayFrame:IsShown() then
     UI.howToPlayFrame:Hide()
+  end
+  if UI.gameModesInfoFrame and UI.gameModesInfoFrame:IsShown() then
+    UI.gameModesInfoFrame:Hide()
   end
   if UI.savedSizesFrame and UI.savedSizesFrame:IsShown() then
     UI.savedSizesFrame:Hide()
@@ -175,6 +179,7 @@ function NHS.RegisterEscapeProxyFrameHooks(UI)
   hook(UI.gameplayRandomPickFrame)
   hook(UI.gameplaySeekerPickFrame)
   hook(UI.howToPlayFrame)
+  hook(UI.gameModesInfoFrame)
   hook(UI.savedSizesFrame)
 
   NHS.SyncEscapeProxyVisibility()
