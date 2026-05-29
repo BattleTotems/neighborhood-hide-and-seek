@@ -2,6 +2,15 @@
 
 All notable changes to Neighborhood Hide and Seek are documented in this file.
 
+## [1.2.1]
+
+### Changed
+- Changed normal plus to cancel sleep animations and do a roar if not in a whistle-able form
+
+### Fixed
+- Fixed the description of the game modes to be the same throughout
+- Fixed some minor UI issues
+
 ## [1.2.0]
 
 ### Added

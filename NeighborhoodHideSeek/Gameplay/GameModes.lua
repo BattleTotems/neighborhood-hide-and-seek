@@ -15,6 +15,7 @@ local GAME_MODES = {
     searchSecChange = 0,
     hideSecOverride = nil,
     seekers = 1,
+    description = "the default game mode.",
   },
   normal_plus = {
     id = "normal_plus",
@@ -24,6 +25,8 @@ local GAME_MODES = {
     searchSecChange = 0,
     hideSecOverride = nil,
     seekers = 1,
+    description = "like normal, but every 10 seconds the closest player to the seeker will roar. Also, once there is one hider left, the seeker will be given hot and cold information to where the last hider is.",
+    warning = "Warning: Best to play this mode in a humanoid form. This game mode may cause your character to suddenly stand up — be prepared!",
   },
   hot_cold = {
     id = "hot_cold",
@@ -33,6 +36,7 @@ local GAME_MODES = {
     searchSecChange = -90,
     hideSecOverride = nil,
     seekers = 1,
+    description = "the seeker gets hot and cold information on how close they are to a hider. The search times are reduced.",
   },
   paired = {
     id = "paired",
@@ -42,6 +46,7 @@ local GAME_MODES = {
     searchSecChange = -90,
     hideSecOverride = nil,
     seekers = 2,
+    description = "the seeker is paired with another seeker. The search times are reduced.",
   },
   conquer = {
     id = "conquer",
@@ -51,6 +56,7 @@ local GAME_MODES = {
     searchSecChange = -60,
     hideSecOverride = nil,
     seekers = 1,
+    description = "as the seeker finds players, those players become seekers. The search times are reduced.",
   },
   chosen_one = {
     id = "chosen_one",
@@ -60,6 +66,7 @@ local GAME_MODES = {
     searchSecChange = -90,
     hideSecOverride = nil,
     seekers = 0, -- one hider, others seekers
+    description = "one hider, the rest are seekers. The search times are reduced.",
   },
   lightning = {
     id = "lightning",
@@ -69,6 +76,7 @@ local GAME_MODES = {
     searchSecChange = -60,
     hideSecOverride = 30,
     seekers = 1,
+    description = "hiders only get 30 seconds to hide. The search times are reduced.",
   },
 }
 
@@ -115,6 +123,18 @@ function NHS.GetEffectiveGameModeId()
     return State.remoteGameMode
   end
   return nil
+end
+
+-- Returns the description string for a mode, or nil if none.
+function NHS.GameModeDescription(modeId)
+  local def = NHS.GameModeDefinition(modeId)
+  return def and def.description or nil
+end
+
+-- Returns the warning string for a mode, or nil if none.
+function NHS.GameModeWarning(modeId)
+  local def = NHS.GameModeDefinition(modeId)
+  return def and def.warning or nil
 end
 
 function NHS.GameModeAllowsHotColdIndicator()

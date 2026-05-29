@@ -1542,7 +1542,8 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end)
 
   gameModeRandomBtn:SetScript("OnClick", function()
-    nhsLeaderSelectGameMode("random") -- This needs to randomly select a game mode from the list of game modes
+    local ids = NHS.GAME_MODE_IDS
+    nhsLeaderSelectGameMode(ids[math.random(#ids)])
   end)
 
   gameplayGroupCatchUpBtn:SetScript("OnClick", function()
@@ -1771,7 +1772,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       wipe(State.gameCandidateKeys)
       State.phase = Phase.PENDING
       local keyStr = table.concat(State.gameLockedSeekerKeys, ",")
-      B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_START .. keyStr)
+      B.nhsBroadcastRoundStart(keyStr, "[NHS] Hider Selected: " .. hiderName)
       print(("|cff88ccff[NHS]|r Round started. |cffffffff%s|r is the hider."):format(hiderName))
     else
       -- Normal mode: lock in all candidates as seekers.
@@ -1785,8 +1786,8 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       wipe(State.gameCandidateKeys)
       State.phase = Phase.PENDING
       local keyStr = table.concat(State.gameLockedSeekerKeys, ",")
-      B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_START .. keyStr)
       local nameStr = table.concat(names, ", ")
+      B.nhsBroadcastRoundStart(keyStr, "[NHS] Seeker(s) Selected: " .. nameStr)
       if #State.gameLockedSeekerKeys > 1 then
         print(("|cff88ccff[NHS]|r Round started. Seekers: |cffffffff%s|r."):format(nameStr))
       else

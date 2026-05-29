@@ -67,7 +67,7 @@ local function nhsSessionHudHouseText()
   if State.gameSessionActive and State.phase == Phase.PICK_HOUSE and State.gameHouseCandidateDisplay then
     return State.gameHouseCandidateDisplay
   end
-  if State.gameSessionActive and (State.phase == Phase.PICK_SEEKER or IsRoundPhase(State.phase)) then
+  if State.gameSessionActive and (State.phase == Phase.PICK_GAME_MODE or State.phase == Phase.PICK_SEEKER or IsRoundPhase(State.phase)) then
     if State.gameLockedHouseDisplay then
       return State.gameLockedHouseDisplay
     end

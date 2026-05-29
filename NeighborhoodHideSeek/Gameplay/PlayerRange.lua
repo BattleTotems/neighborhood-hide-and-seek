@@ -331,7 +331,7 @@ function NHS.SyncHiddenRangePoll()
 end
 
 -- Normal Plus: every 10 s the seeker broadcasts the closest hidden player's key.
--- GroupSync receives this message and triggers DoEmote("WHISTLE") on the named player's client.
+-- GroupSync receives this message and triggers DoEmote("ROAR") on the named player's client.
 local function nhsNormalPlusShouldBroadcast()
   if State.phase ~= Phase.SEARCHING then return false end
   local id = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()

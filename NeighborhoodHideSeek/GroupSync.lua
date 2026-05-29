@@ -137,6 +137,20 @@ local function nhsBroadcastLeaderSync(message)
   nhsSendAddonSyncPayload(message)
 end
 
+-- Sends Round Start to addon sync (backwards-compatible) but a custom string to visible chat.
+local function nhsBroadcastRoundStart(keyStr, chatMsg)
+  if not IsInGroup() or not C.nhsIsRoundLeader() or not keyStr or keyStr == "" then
+    return
+  end
+  local addonMsg = NHS_MSG_ROUND_START .. keyStr
+  if #addonMsg > 255 then
+    return
+  end
+  nhsSendAddonSyncPayload(addonMsg)
+  local msg = (type(chatMsg) == "string" and chatMsg ~= "" and #chatMsg <= 255) and chatMsg or addonMsg
+  nhsGameplaySendChatIfOutOfCombat(msg, nhsGroupSyncChannel())
+end
+
 local function nhsBroadcastHouseLocked(display)
   if type(display) ~= "string" or display == "" then
     return
@@ -340,7 +354,7 @@ local function nhsBroadcastSeekerFound(foundKey)
 end
 
 -- Normal Plus: seeker broadcasts the closest hidden player's key (addon-only) every 10 s.
--- The named player's client receives this and performs a whistle emote.
+-- The named player's client receives this and performs a roar emote.
 local function nhsBroadcastNormalPlusNearest(playerKey)
   if not IsInGroup() then return end
   if type(playerKey) ~= "string" or playerKey == "" then return end
@@ -666,6 +680,10 @@ local function nhsBroadcastLeaderGameMode(modeId)
   if #chatMsg <= 255 then
     nhsGameplaySendChatIfOutOfCombat(chatMsg, nhsGroupSyncChannel())
   end
+  local warning = NHS.GameModeWarning and NHS.GameModeWarning(modeId)
+  if warning and #warning <= 255 then
+    nhsGameplaySendChatIfOutOfCombat(warning, nhsGroupSyncChannel())
+  end
 end
 
 NHS.GroupSync = {
@@ -677,6 +695,7 @@ NHS.GroupSync = {
 
 local B = NHS.BuildMainFrameBridge
 B.nhsBroadcastLeaderSync = nhsBroadcastLeaderSync
+B.nhsBroadcastRoundStart = nhsBroadcastRoundStart
 B.NHS_MSG_ROUND_START = NHS_MSG_ROUND_START
 B.NHS_MSG_SESSION_START = NHS_MSG_SESSION_START
 B.NHS_MSG_HIDING = NHS_MSG_HIDING
@@ -713,7 +732,9 @@ local function nhsNormalizeSyncSender(senderName)
 end
 
 -- Returns true if this was an [NHS] NP Nearest: line (handled or ignored); false otherwise.
--- If the local player is the named nearest hider, triggers a whistle emote.
+-- If the local player is the named nearest hider, signals them with an emote.
+-- STAND is called first to break sleep, sit, or any other blocking emote state.
+-- Uses ROAR in shapeshift forms (works in cat/bear/etc.), WHISTLE otherwise.
 local function nhsApplyNormalPlusNearest(senderName, text)
   local body = text:match("^%[NHS%]%s*NP Nearest:%s*(.+)%s*$")
   if not body then return false end
@@ -725,7 +746,14 @@ local function nhsApplyNormalPlusNearest(senderName, text)
   if not myKey then return true end
   if C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, nearestKey) then
     if not InCombatLockdown() then
-      pcall(DoEmote, "WHISTLE")
+      local formID = GetShapeshiftFormID and GetShapeshiftFormID()
+      local emote = (formID and formID ~= 0) and "ROAR" or "WHISTLE"
+      -- STAND first to break sleep or any other blocking emote state, then a short
+      -- delay so the stand animation clears before the audio emote fires.
+      pcall(DoEmote, "STAND")
+      C_Timer.After(0.5, function()
+        pcall(DoEmote, emote)
+      end)
     end
   end
   return true

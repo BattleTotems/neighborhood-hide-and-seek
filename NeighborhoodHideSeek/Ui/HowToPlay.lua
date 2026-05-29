@@ -56,15 +56,20 @@ local NHS_HOW_TO_PLAY_SECTIONS = {
   },
   {
     title = "Game Modes",
-    body = table.concat({
-      "• Normal: the default game mode.",
-      "• Normal Plus: like normal, but every 10 seconds the closest player to the seeker will do an audible emote. Also, once there is one hider left, the seeker will be given hot and cold information to where the last hider is.",
-      "• Hot and Cold: the seeker gets hot and cold information on how close they are to a hider. The search times are reduced.",
-      "• Paired: the seeker is paired with another seeker. The search times are reduced.",
-      "• Conquer: as the seeker finds players, those players become seekers. The search times are reduced.",
-      "• Chosen One: one hider, the rest are seekers. The search times are reduced.",
-      "• Lightning: hiders only get 30 seconds to hide. The search times are reduced.",
-    }, "\n"),
+    body = (function()
+      local lines = {}
+      for _, id in ipairs(NeighborhoodHideSeek.GAME_MODE_IDS) do
+        local def = NeighborhoodHideSeek.GameModeDefinition(id)
+        if def and def.description then
+          local line = ("• %s: %s"):format(def.label, def.description)
+          if def.warning then
+            line = line .. " " .. def.warning
+          end
+          lines[#lines + 1] = line
+        end
+      end
+      return table.concat(lines, "\n")
+    end)(),
   },
   {
     title = "Houses",
