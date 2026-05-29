@@ -95,6 +95,9 @@ local State = {
   -- written to NHSV.lastCompletedPastRounds for /reload; hydrate loads that when no active
   -- NHSV.gameRounds session exists (see GameSession.lua).
   pastRounds = {},
+  -- Time Trial: leader tracks when the search phase started and its duration so +60s on find works.
+  searchPhaseStartTime = nil,
+  searchPhaseDuration = nil,
 }
 
 NeighborhoodHideSeek.State = State

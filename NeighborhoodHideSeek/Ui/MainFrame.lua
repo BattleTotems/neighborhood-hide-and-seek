@@ -100,55 +100,59 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     GameTooltip:Hide()
   end)
 
-  -- Game Mode Buttons
-   -- TODO: Use the game mode label from the game mode definition
-  local gameModeNormalBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  gameModeNormalBtn:SetSize(150, 22)
-  gameModeNormalBtn:SetText("Normal")
-  gameModeNormalBtn:SetPoint("TOPLEFT", gameModeHdr, "BOTTOMLEFT", 0, -4)
-  gameModeNormalBtn:Hide()
-
-  local gameModeNormalPlusBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  gameModeNormalPlusBtn:SetSize(150, 22)
-  gameModeNormalPlusBtn:SetText("Normal Plus")
-  gameModeNormalPlusBtn:SetPoint("LEFT", gameModeNormalBtn, "RIGHT", 8, 0)
-  gameModeNormalPlusBtn:Hide()
-
-  local gameModeHotColdBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  gameModeHotColdBtn:SetSize(150, 22)
-  gameModeHotColdBtn:SetText("Hot and Cold")
-  gameModeHotColdBtn:SetPoint("TOPLEFT", gameModeNormalBtn, "BOTTOMLEFT", 0, -4)
-  gameModeHotColdBtn:Hide()
-
-  local gameModePairedBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  gameModePairedBtn:SetSize(150, 22)
-  gameModePairedBtn:SetText("Paired")
-  gameModePairedBtn:SetPoint("LEFT", gameModeHotColdBtn, "RIGHT", 8, 0)
-  gameModePairedBtn:Hide()
-
-  local gameModeConquerBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  gameModeConquerBtn:SetSize(150, 22)
-  gameModeConquerBtn:SetText("Conquer")
-  gameModeConquerBtn:SetPoint("TOPLEFT", gameModeHotColdBtn, "BOTTOMLEFT", 0, -4)
-  gameModeConquerBtn:Hide()
-
-  local gameModeChosenOneBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  gameModeChosenOneBtn:SetSize(150, 22)
-  gameModeChosenOneBtn:SetText("Chosen One")
-  gameModeChosenOneBtn:SetPoint("LEFT", gameModeConquerBtn, "RIGHT", 8, 0)
-  gameModeChosenOneBtn:Hide()
-
-  local gameModeLightningBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-  gameModeLightningBtn:SetSize(150, 22)
-  gameModeLightningBtn:SetText("Lightning")
-  gameModeLightningBtn:SetPoint("TOPLEFT", gameModeConquerBtn, "BOTTOMLEFT", 0, -4)
-  gameModeLightningBtn:Hide()
+  -- Game Mode Buttons — built dynamically from NHS.GAME_MODE_IDS, 2-column grid.
+  local gameModeButtons = {}
+  for i, id in ipairs(NHS.GAME_MODE_IDS) do
+    local def = NHS.GameModeDefinition(id)
+    local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+    btn:SetSize(150, 22)
+    btn:SetText(def.label)
+    btn._gameModeId = id
+    btn:Hide()
+    local col = (i - 1) % 2
+    local row = math.floor((i - 1) / 2)
+    if col == 0 then
+      if row == 0 then
+        btn:SetPoint("TOPLEFT", gameModeHdr, "BOTTOMLEFT", 0, -4)
+      else
+        btn:SetPoint("TOPLEFT", gameModeButtons[2 * row - 1], "BOTTOMLEFT", 0, -4)
+      end
+    else
+      btn:SetPoint("LEFT", gameModeButtons[i - 1], "RIGHT", 8, 0)
+    end
+    if def.tooltip and def.tooltip ~= "" then
+      btn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(def.label, 1, 1, 1)
+        GameTooltip:AddLine(def.tooltip, nil, nil, nil, true)
+        GameTooltip:Show()
+      end)
+      btn:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+      end)
+    end
+    gameModeButtons[i] = btn
+  end
 
   local gameModeRandomBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   gameModeRandomBtn:SetSize(150, 22)
   gameModeRandomBtn:SetText("Random")
-  gameModeRandomBtn:SetPoint("LEFT", gameModeLightningBtn, "RIGHT", 8, 0)
   gameModeRandomBtn:Hide()
+  local _gmn = #NHS.GAME_MODE_IDS
+  if _gmn % 2 == 0 then
+    gameModeRandomBtn:SetPoint("TOPLEFT", gameModeButtons[_gmn - 1], "BOTTOMLEFT", 0, -4)
+  else
+    gameModeRandomBtn:SetPoint("LEFT", gameModeButtons[_gmn], "RIGHT", 8, 0)
+  end
+  gameModeRandomBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Random", 1, 1, 1)
+    GameTooltip:AddLine("Picks a game mode at random.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  gameModeRandomBtn:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
 
   -- House Selection
 
@@ -786,13 +790,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     sessionToggleBtn:SetShown(show)
     gameModeHdr:SetShown(show)
     gameModeInfoBtn:SetShown(show)
-    gameModeNormalBtn:SetShown(show)
-    gameModeNormalPlusBtn:SetShown(show)
-    gameModeHotColdBtn:SetShown(show)
-    gameModePairedBtn:SetShown(show)
-    gameModeConquerBtn:SetShown(show)
-    gameModeChosenOneBtn:SetShown(show)
-    gameModeLightningBtn:SetShown(show)
+    for _, b in ipairs(gameModeButtons) do b:SetShown(show) end
     gameModeRandomBtn:SetShown(show)
     houseSelectHdr:SetShown(show)
     lockedRoundHouseLbl:SetShown(show)
@@ -907,13 +905,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       nhsHideSessionHouseListPickUi()
       gameModeHdr:Hide()
       gameModeInfoBtn:Hide()
-      gameModeNormalBtn:Hide()
-      gameModeNormalPlusBtn:Hide()
-      gameModeHotColdBtn:Hide()
-      gameModePairedBtn:Hide()
-      gameModeConquerBtn:Hide()
-      gameModeChosenOneBtn:Hide()
-      gameModeLightningBtn:Hide()
+      for _, b in ipairs(gameModeButtons) do b:Hide() end
       gameModeRandomBtn:Hide()
       houseSelectHdr:Hide()
       lockedRoundHouseLbl:Hide()
@@ -929,13 +921,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     else
       gameModeHdr:SetShown(pickGameMode)
       gameModeInfoBtn:SetShown(pickGameMode)
-      gameModeNormalBtn:SetShown(pickGameMode)
-      gameModeNormalPlusBtn:SetShown(pickGameMode)
-      gameModeHotColdBtn:SetShown(pickGameMode)
-      gameModePairedBtn:SetShown(pickGameMode)
-      gameModeConquerBtn:SetShown(pickGameMode)
-      gameModeChosenOneBtn:SetShown(pickGameMode)
-      gameModeLightningBtn:SetShown(pickGameMode)
+      for _, b in ipairs(gameModeButtons) do b:SetShown(pickGameMode) end
       gameModeRandomBtn:SetShown(pickGameMode)
       local showHouseSection = pickHouse or pickGameMode or pickSeeker
         or (inRound and State.phase ~= Phase.SEARCHING and State.phase ~= Phase.REVEALING)
@@ -1081,13 +1067,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       searchCustomSecEdit:SetEnabled(false)
       searchCustomCountdownBtn:SetEnabled(false)
     elseif pickGameMode then
-      gameModeNormalBtn:SetEnabled(mayAct)
-      gameModeNormalPlusBtn:SetEnabled(mayAct)
-      gameModeHotColdBtn:SetEnabled(mayAct)
-      gameModePairedBtn:SetEnabled(mayAct)
-      gameModeConquerBtn:SetEnabled(mayAct)
-      gameModeChosenOneBtn:SetEnabled(mayAct)
-      gameModeLightningBtn:SetEnabled(mayAct)
+      for _, b in ipairs(gameModeButtons) do b:SetEnabled(mayAct) end
       gameModeRandomBtn:SetEnabled(mayAct)
       randGameHouseBtn:SetEnabled(false)
       viewGameHousePickBtn:SetEnabled(false)
@@ -1303,7 +1283,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
             anchor = endRoundBtn
           end
         elseif pickGameMode then
-          anchor = gameModeLightningBtn  -- bottom row of game mode buttons
+          anchor = gameModeRandomBtn
         elseif pickSeeker then
           anchor = startRoundBtn
         elseif pickHouse then
@@ -1513,33 +1493,11 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   -- Game Mode Selection
 
-  gameModeNormalBtn:SetScript("OnClick", function()
-    nhsLeaderSelectGameMode("normal")
-  end)
-
-  gameModeNormalPlusBtn:SetScript("OnClick", function()
-    nhsLeaderSelectGameMode("normal_plus")
-  end)
-
-  gameModeHotColdBtn:SetScript("OnClick", function()
-    nhsLeaderSelectGameMode("hot_cold")
-  end)
-
-  gameModePairedBtn:SetScript("OnClick", function()
-    nhsLeaderSelectGameMode("paired")
-  end)
-
-  gameModeConquerBtn:SetScript("OnClick", function()
-    nhsLeaderSelectGameMode("conquer")
-  end)
-
-  gameModeChosenOneBtn:SetScript("OnClick", function()
-    nhsLeaderSelectGameMode("chosen_one")
-  end)
-
-  gameModeLightningBtn:SetScript("OnClick", function()
-    nhsLeaderSelectGameMode("lightning")
-  end)
+  for _, b in ipairs(gameModeButtons) do
+    b:SetScript("OnClick", function(self)
+      nhsLeaderSelectGameMode(self._gameModeId)
+    end)
+  end
 
   gameModeRandomBtn:SetScript("OnClick", function()
     local ids = NHS.GAME_MODE_IDS
@@ -1906,6 +1864,10 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     local targetPhase = self._kind == "hide" and Phase.HIDING or Phase.SEARCHING
     local phaseLabel  = self._kind == "hide" and "Hiding" or "Searching"
     nhsLeaderBroadcastRoundPhase(targetPhase)
+    if self._kind == "search" then
+      State.searchPhaseStartTime = GetTime()
+      State.searchPhaseDuration = sec
+    end
     print(("|cff88ccff[NHS]|r %s — %s (%d s)."):format(phaseLabel, presetName, sec))
     local ok, err = B.nhsStartBuiltInCountdown(sec)
     if not ok then

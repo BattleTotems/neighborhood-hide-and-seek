@@ -305,6 +305,9 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
   end
   C.State.foundSet[foundKey] = true
   C.State.foundOrder[#C.State.foundOrder + 1] = foundKey
+  if NHS.TimeTrialOnFound then
+    NHS.TimeTrialOnFound()
+  end
   -- Conquer mode: found players join the seeker team so they can broadcast finds.
   if NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId() == "conquer" and IsRoundPhase(C.State.phase) then
     local alreadyIn = false

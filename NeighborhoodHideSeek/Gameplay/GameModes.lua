@@ -16,6 +16,7 @@ local GAME_MODES = {
     hideSecOverride = nil,
     seekers = 1,
     description = "the default game mode.",
+    tooltip = "Standard hide and seek. No special rules.",
   },
   normal_plus = {
     id = "normal_plus",
@@ -27,6 +28,7 @@ local GAME_MODES = {
     seekers = 1,
     description = "like normal, but every 10 seconds the closest player to the seeker will roar. Also, once there is one hider left, the seeker will be given hot and cold information to where the last hider is.",
     warning = "Warning: Best to play this mode in a humanoid form. This game mode may cause your character to suddenly stand up — be prepared!",
+    tooltip = "Like Normal, but the closest hider roars every 10s. When one hider remains, the seeker gets hot/cold distance hints.",
   },
   hot_cold = {
     id = "hot_cold",
@@ -37,6 +39,7 @@ local GAME_MODES = {
     hideSecOverride = nil,
     seekers = 1,
     description = "the seeker gets hot and cold information on how close they are to a hider. The search times are reduced.",
+    tooltip = "The seeker always sees hot/cold distance hints. Shorter search time.",
   },
   paired = {
     id = "paired",
@@ -47,6 +50,7 @@ local GAME_MODES = {
     hideSecOverride = nil,
     seekers = 2,
     description = "the seeker is paired with another seeker. The search times are reduced.",
+    tooltip = "Two seekers hunt together. Shorter search time.",
   },
   conquer = {
     id = "conquer",
@@ -57,6 +61,7 @@ local GAME_MODES = {
     hideSecOverride = nil,
     seekers = 1,
     description = "as the seeker finds players, those players become seekers. The search times are reduced.",
+    tooltip = "Found players join the seeker team. Shorter search time.",
   },
   chosen_one = {
     id = "chosen_one",
@@ -67,6 +72,7 @@ local GAME_MODES = {
     hideSecOverride = nil,
     seekers = 0, -- one hider, others seekers
     description = "one hider, the rest are seekers. The search times are reduced.",
+    tooltip = "One player hides while everyone else seeks. Shorter search time.",
   },
   lightning = {
     id = "lightning",
@@ -77,11 +83,24 @@ local GAME_MODES = {
     hideSecOverride = 30,
     seekers = 1,
     description = "hiders only get 30 seconds to hide. The search times are reduced.",
+    tooltip = "Only 30 seconds to hide. Shorter search time.",
+  },
+  time_trial = {
+    id = "time_trial",
+    label = "Time Trial",
+    hudLabel = "Time Trial",
+    hotColdIndicator = false,
+    searchSecChange = 0,
+    hideSecOverride = 60,
+    searchSecOverride = 90,
+    seekers = 1,
+    description = "hiders get 60 seconds to hide. Seekers start with 90 seconds to search, but each player found adds 60 seconds back to the clock.",
+    tooltip = "60s to hide, 90s to seek. Each player found adds 60s back to the clock.",
   },
 }
 
 NHS.GAME_MODES = GAME_MODES
-NHS.GAME_MODE_IDS = { "normal", "normal_plus", "hot_cold", "paired", "conquer", "chosen_one", "lightning" }
+NHS.GAME_MODE_IDS = { "normal", "normal_plus", "hot_cold", "paired", "conquer", "chosen_one", "lightning", "time_trial" }
 
 function NHS.IsValidGameMode(modeId)
   return type(modeId) == "string" and GAME_MODES[modeId] ~= nil
@@ -157,6 +176,9 @@ function NHS.GetRoundSearchSeconds(baseSec)
   end
   local id = NHS.GetEffectiveGameModeId()
   local def = id and GAME_MODES[id]
+  if def and def.searchSecOverride then
+    return math.max(1, math.floor(def.searchSecOverride))
+  end
   local change = (def and def.searchSecChange) or 0
   return math.max(1, baseSec + change)
 end
@@ -172,6 +194,38 @@ function NHS.GetRoundHideSeconds(baseSec)
     return math.max(1, math.floor(def.hideSecOverride))
   end
   return baseSec
+end
+
+function NHS.IsTimeTrial()
+  return NHS.GetEffectiveGameModeId() == "time_trial"
+end
+
+-- Leader-only: called after each found in Time Trial mode to add 60 s to the running clock.
+function NHS.TimeTrialOnFound()
+  if not NHS.IsTimeTrial() then return end
+  local bmf = NHS.BuildMainFrameBridge
+  if not bmf or not bmf.nhsIsRoundLeader or not bmf.nhsIsRoundLeader() then return end
+  if State.phase ~= NHS.Phase.SEARCHING then return end
+  if not State.searchPhaseStartTime or not State.searchPhaseDuration then return end
+
+  local elapsed = GetTime() - State.searchPhaseStartTime
+  local remaining = math.max(0, State.searchPhaseDuration - elapsed)
+  local newDur = math.floor(remaining + 60)
+  if newDur < 1 then return end
+
+  State.searchPhaseStartTime = GetTime()
+  State.searchPhaseDuration = newDur
+
+  if bmf.nhsStartBuiltInCountdown then
+    bmf.nhsStartBuiltInCountdown(newDur)
+  end
+
+  if bmf.nhsBroadcastLeaderSync then
+    local mins = math.floor(newDur / 60)
+    local secs = newDur % 60
+    local timeStr = mins > 0 and ("%dm %ds"):format(mins, secs) or ("%ds"):format(secs)
+    bmf.nhsBroadcastLeaderSync(("[NHS] Time Trial: +60s — %s remaining"):format(timeStr))
+  end
 end
 
 function NHS.ClearRoundGameMode()
