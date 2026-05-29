@@ -97,10 +97,21 @@ local GAME_MODES = {
     description = "hiders get 60 seconds to hide. Seekers start with 90 seconds to search, but each player found adds 30 seconds back to the clock.",
     tooltip = "60s to hide, 90s to seek. Each player found adds 30s back to the clock.",
   },
+  bloodhound = {
+    id = "bloodhound",
+    label = "Bloodhound",
+    hudLabel = "Bloodhound",
+    hotColdIndicator = false,
+    searchSecChange = 0,
+    hideSecOverride = nil,
+    seekers = 1,
+    description = "hiders must keep moving. Every 10 seconds, the seeker receives a waypoint arrow pointing to whichever hider has been stationary the longest.",
+    tooltip = "Hiders must keep moving. Every 10s the seeker gets a waypoint to the longest-stationary hider.",
+  },
 }
 
 NHS.GAME_MODES = GAME_MODES
-NHS.GAME_MODE_IDS = { "normal", "normal_plus", "hot_cold", "paired", "conquer", "chosen_one", "lightning", "overtime" }
+NHS.GAME_MODE_IDS = { "normal", "normal_plus", "hot_cold", "paired", "conquer", "chosen_one", "lightning", "overtime", "bloodhound" }
 
 function NHS.IsValidGameMode(modeId)
   return type(modeId) == "string" and GAME_MODES[modeId] ~= nil

@@ -187,6 +187,8 @@ local function nhsHiddenPlayerEntries()
   return entries
 end
 
+NHS.GetHiddenPlayerEntries = nhsHiddenPlayerEntries
+
 function NHS.ShouldShowHiddenPlayerRanges()
   if not NHS.GameModeAllowsHotColdIndicator or not NHS.GameModeAllowsHotColdIndicator() then
     return false
@@ -327,6 +329,9 @@ function NHS.SyncHiddenRangePoll()
   end
   if NHS.SyncNormalPlusNearestPoll then
     NHS.SyncNormalPlusNearestPoll()
+  end
+  if NHS.SyncBloodhoundPolls then
+    NHS.SyncBloodhoundPolls()
   end
 end
 

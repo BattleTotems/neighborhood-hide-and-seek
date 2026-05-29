@@ -2,6 +2,12 @@
 
 All notable changes to Neighborhood Hide and Seek are documented in this file.
 
+## [1.2.2]
+
+### Added
+- Added a new game mode: Bloodhound
+
+
 ## [1.2.1]
 
 ### Added
@@ -14,6 +20,7 @@ All notable changes to Neighborhood Hide and Seek are documented in this file.
 ### Fixed
 - Fixed the description of the game modes to be the same throughout
 - Fixed some minor UI issues
+
 
 ## [1.2.0]
 

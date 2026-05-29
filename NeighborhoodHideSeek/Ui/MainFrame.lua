@@ -140,9 +140,11 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   gameModeRandomBtn:Hide()
   local _gmn = #NHS.GAME_MODE_IDS
   if _gmn % 2 == 0 then
+    gameModeRandomBtn:SetSize(150, 22)
     gameModeRandomBtn:SetPoint("TOPLEFT", gameModeButtons[_gmn - 1], "BOTTOMLEFT", 0, -4)
   else
-    gameModeRandomBtn:SetPoint("LEFT", gameModeButtons[_gmn], "RIGHT", 8, 0)
+    gameModeRandomBtn:SetSize(308, 22)
+    gameModeRandomBtn:SetPoint("TOPLEFT", gameModeButtons[_gmn], "BOTTOMLEFT", 0, -4)
   end
   gameModeRandomBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
