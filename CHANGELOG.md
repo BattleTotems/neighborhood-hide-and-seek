@@ -4,6 +4,10 @@ All notable changes to Neighborhood Hide and Seek are documented in this file.
 
 ## [1.2.1]
 
+### Added
+- Added a new game mode: Overtime
+- Added a ready up feature while hiding
+
 ### Changed
 - Changed normal plus to cancel sleep animations and do a roar if not in a whistle-able form
 

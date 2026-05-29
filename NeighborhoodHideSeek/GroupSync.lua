@@ -25,6 +25,7 @@ local NHS_MSG_GAME_MODE = "[NHS] Game mode: "
 local NHS_MSG_FOUND_PREFIX = "[NHS] Found: "
 local NHS_MSG_REVEALING = "[NHS] The Revealing Begins!"
 local NHS_MSG_NP_NEAREST = "[NHS] NP Nearest: "
+local NHS_MSG_HIDER_READY = "[NHS] Hider Ready: "
 
 -- Addon comm: same human-readable NHS line as payload (max 255 bytes).
 local NHS_ADDON_PREFIX = "NeighborhoodHS"
@@ -200,6 +201,7 @@ end
 
 local function nhsClearRemoteRoundSync()
   wipe(C.State.remoteSeekerKeys)
+  wipe(C.State.hiderReadySet)
   C.clearFound()
   if NHS.SyncHiddenRangePoll then
     NHS.SyncHiddenRangePoll()
@@ -305,8 +307,8 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
   end
   C.State.foundSet[foundKey] = true
   C.State.foundOrder[#C.State.foundOrder + 1] = foundKey
-  if NHS.TimeTrialOnFound then
-    NHS.TimeTrialOnFound()
+  if NHS.OvertimeOnFound then
+    NHS.OvertimeOnFound()
   end
   -- Conquer mode: found players join the seeker team so they can broadcast finds.
   if NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId() == "conquer" and IsRoundPhase(C.State.phase) then
@@ -367,6 +369,45 @@ local function nhsBroadcastNormalPlusNearest(playerKey)
   nhsSendAddonSyncPayload(msg)
 end
 NHS.BroadcastNormalPlusNearest = nhsBroadcastNormalPlusNearest
+
+-- Any hider: broadcast "[NHS] Hider Ready: <playerKey>" to the group during the hiding phase.
+local function nhsBroadcastHiderReady()
+  if not IsInGroup() then return end
+  local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+  if not myKey or myKey == "" then return end
+  local msg = NHS_MSG_HIDER_READY .. myKey
+  if #msg > 255 then return end
+  C.State.hiderReadySet[myKey] = true
+  nhsSendAddonSyncPayload(msg)
+  if NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
+  elseif C.nhsSessionHudUpdate then
+    C.nhsSessionHudUpdate()
+  end
+end
+NHS.BroadcastHiderReady = nhsBroadcastHiderReady
+
+-- Returns true if this was an [NHS] Hider Ready: line (handled or ignored); false otherwise.
+local function nhsApplyHiderReady(senderName, text)
+  local body = text:match("^%[NHS%]%s*Hider Ready:%s*(.+)%s*$")
+  if not body then return false end
+  if C.State.phase ~= Phase.HIDING then return true end
+  local readyKey = Ambiguate((body:match("^%s*(.-)%s*$") or body), "none")
+  if not readyKey or readyKey == "" then return true end
+  -- Validate the sender key matches the claimed player key (prevents spoofing).
+  local senderKey = Ambiguate(type(senderName) == "string" and senderName or "", "none")
+  if senderKey == "" then return true end
+  if not C.nhsRosterIdentityEqual or not C.nhsRosterIdentityEqual(senderKey, readyKey) then
+    return true
+  end
+  C.State.hiderReadySet[readyKey] = true
+  if NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
+  elseif C.nhsSessionHudUpdate then
+    C.nhsSessionHudUpdate()
+  end
+  return true
+end
 
 -- Revealing phase: addon sync always uses the standard [NHS] line (followers key off it);
 -- visible chat carries a custom congratulatory message built by the leader.
@@ -504,10 +545,12 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     else
       local seekKey = text:match("^%[NHS%]%s*The Seeking Begins!:%s*(.+)%s*$")
       if seekKey then
+        wipe(C.State.hiderReadySet)
         nhsRemoteFollowerSyncRoundState(seekKey, Phase.SEARCHING)
       elseif text:match("^%[NHS%]%s*The Seeking Begins!%s*$") then
         C.State.remoteSessionActive = true
         if IsRoundPhase(C.State.phase) then
+          wipe(C.State.hiderReadySet)
           C.State.phase = Phase.SEARCHING
         end
       elseif text:match("^%[NHS%]%s*The Revealing Begins!%s*$") then
@@ -774,6 +817,9 @@ local function nhsDispatchGroupNhsLine(senderName, text)
     return
   end
   if nhsApplyNormalPlusNearest(senderName, text) then
+    return
+  end
+  if nhsApplyHiderReady(senderName, text) then
     return
   end
   nhsApplyGroupSyncFromLeader(senderName, text)

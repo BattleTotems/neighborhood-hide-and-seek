@@ -105,7 +105,6 @@ end
 
 local function nhsSessionHudSeekerKeyForLists()
   -- Returns first seeker key only (fallback for single-seeker hidden-player list).
-  -- FormatHiddenPlayersLine (PlayerRange.lua) handles all seekers via nhsSeekerKeySetForHiddenLists.
   if State.remoteSessionActive and IsRoundPhase(State.phase) and #State.remoteSeekerKeys > 0 then
     return State.remoteSeekerKeys[1]
   end
@@ -136,9 +135,25 @@ local function nhsSessionHudCommaList(names, maxShown, sortAlphabetically)
   return table.concat(parts, ", ") .. (", +" .. tostring(#names - maxShown) .. " more")
 end
 
--- Everyone still hiding (not marked found).
--- Everyone still hiding (not marked found), excluding designated seekers.
-local function nhsSessionHudHiddenPlayerNames()
+-- Returns whether the local player is a hider (not a seeker) during the hiding phase.
+local function nhsLocalPlayerIsHider()
+  if State.phase ~= Phase.HIDING then return false end
+  local seekerKeys = State.gameSessionActive and State.gameLockedSeekerKeys
+    or (State.remoteSessionActive and State.remoteSeekerKeys)
+    or {}
+  local myKey = NHS.LocalPlayerSortKey and NHS.LocalPlayerSortKey()
+  if not myKey then return false end
+  for _, k in ipairs(seekerKeys) do
+    if NHS.GroupSortKeysEquivalent and NHS.GroupSortKeysEquivalent(myKey, k) then
+      return false
+    end
+  end
+  return true
+end
+
+-- Everyone still hiding (not marked found), with ready status.
+-- Returns sorted list of { name, ready } entries.
+local function nhsSessionHudHiddenPlayerEntries()
   local roleSet = {}
   if State.remoteSessionActive and IsRoundPhase(State.phase) then
     for _, k in ipairs(State.remoteSeekerKeys) do roleSet[k] = true end
@@ -150,26 +165,53 @@ local function nhsSessionHudHiddenPlayerNames()
     for _, k in ipairs(State.gameCandidateKeys) do roleSet[k] = true end
   end
   local roster = nhsGetGroupRoster()
-  local names = {}
+  local entries = {}
   for _, m in ipairs(roster) do
     if not roleSet[m.key] and not State.foundSet[m.key] then
-      names[#names + 1] = Ambiguate(m.key, "short")
+      entries[#entries + 1] = {
+        name = Ambiguate(m.key, "short"),
+        ready = State.hiderReadySet[m.key] == true,
+        key = m.key,
+      }
     end
   end
-  table.sort(names)
+  table.sort(entries, function(a, b) return a.name < b.name end)
+  return entries
+end
+
+-- Everyone still hiding (not marked found), excluding designated seekers.
+local function nhsSessionHudHiddenPlayerNames()
+  local entries = nhsSessionHudHiddenPlayerEntries()
+  local names = {}
+  for _, e in ipairs(entries) do
+    names[#names + 1] = e.name
+  end
   return names
 end
 
 local function nhsSessionHudHiddenFormatted()
-  if NHS.FormatHiddenPlayersLine then
-    return NHS.FormatHiddenPlayersLine()
-  end
-  local names = nhsSessionHudHiddenPlayerNames()
-  local n = #names
+  local entries = nhsSessionHudHiddenPlayerEntries()
+  local n = #entries
   if n == 0 then
     return "Hidden (0): —"
   end
-  return ("Hidden (%d): %s"):format(n, nhsSessionHudCommaList(names))
+  -- During hiding phase, show ready players in green.
+  local showReady = State.phase == Phase.HIDING
+  local maxShown = 14
+  local parts = {}
+  for i = 1, math.min(n, maxShown) do
+    local e = entries[i]
+    if showReady and e.ready then
+      parts[#parts + 1] = "|cff00dd00" .. e.name .. "|r"
+    else
+      parts[#parts + 1] = e.name
+    end
+  end
+  local list = table.concat(parts, ", ")
+  if n > maxShown then
+    list = list .. ", +" .. tostring(n - maxShown) .. " more"
+  end
+  return ("Hidden (%d): %s"):format(n, list)
 end
 
 local function nhsSessionHudClosestRangeText()
@@ -234,6 +276,22 @@ local function nhsSessionHudUpdate()
       hud._seekerModeBtn:Hide()
     end
   end
+  -- Ready button: visible for hiders during hiding phase only, hidden once they've clicked it.
+  local myKey = NHS.LocalPlayerSortKey and NHS.LocalPlayerSortKey()
+  local alreadyReady = myKey and State.hiderReadySet[myKey] == true
+  local showReadyBtn = hud._readyBtn
+    and nhsLocalPlayerIsHider()
+    and not alreadyReady
+  if hud._readyBtn then
+    if showReadyBtn then
+      local anchorAbove = showSeekerBtn and hud._seekerModeBtn or hud._foundLine
+      hud._readyBtn:ClearAllPoints()
+      hud._readyBtn:SetPoint("TOPLEFT", anchorAbove, "BOTTOMLEFT", 0, -8)
+      hud._readyBtn:Show()
+    else
+      hud._readyBtn:Hide()
+    end
+  end
   local padBottom = 14
   local hTitle = hud._title:GetStringHeight() or 12
   local hPhase = hud._phaseLine:GetStringHeight() or 12
@@ -244,7 +302,7 @@ local function nhsSessionHudUpdate()
   local hClosest = closestRange and (hud._closestRangeLine:GetStringHeight() or 12) or 0
   local hFound = hud._foundLine:GetStringHeight() or 12
   local gapClosest = closestRange and 6 or 0
-  local hBtn = showSeekerBtn and 32 or 0
+  local hBtn = (showSeekerBtn and 32 or 0) + (showReadyBtn and 32 or 0)
   local totalH = 12 + hTitle + 10 + hPhase + 4 + hMode + 4 + hHouse + 4 + hSeek + 8 + hHid + gapClosest + hClosest + 6 + hFound + hBtn + padBottom
   hud:SetHeight(math.max(130, math.min(360, totalH)))
 end
@@ -367,6 +425,23 @@ local function nhsInitSessionHud()
     end
   end)
   seekerModeBtn:Hide()
+  local readyBtn = CreateFrame("Button", nil, hud, "UIPanelButtonTemplate")
+  readyBtn:SetSize(160, 24)
+  readyBtn:SetText("I'm Hidden!")
+  readyBtn:SetScript("OnClick", function()
+    if NHS.BroadcastHiderReady then
+      NHS.BroadcastHiderReady()
+    end
+    nhsSessionHudUpdate()
+  end)
+  readyBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("I'm Hidden!", 1, 1, 1)
+    GameTooltip:AddLine("Let the leader know you're in your hiding spot.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  readyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  readyBtn:Hide()
   hud._phaseLine = phaseLine
   hud._gameModeLine = gameModeLine
   hud._houseLine = houseLine
@@ -375,6 +450,7 @@ local function nhsInitSessionHud()
   hud._hiddenLine = hiddenLine
   hud._closestRangeLine = closestRangeLine
   hud._seekerModeBtn = seekerModeBtn
+  hud._readyBtn = readyBtn
   UI.sessionHud = hud
   nhsSessionHudUpdate()
 end

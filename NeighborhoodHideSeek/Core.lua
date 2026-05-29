@@ -98,6 +98,8 @@ local State = {
   -- Time Trial: leader tracks when the search phase started and its duration so +60s on find works.
   searchPhaseStartTime = nil,
   searchPhaseDuration = nil,
+  -- Hiders who clicked "I'm Hidden!" during the hiding phase (keys = Ambiguate(..., "none")).
+  hiderReadySet = {},
 }
 
 NeighborhoodHideSeek.State = State
@@ -105,6 +107,7 @@ NeighborhoodHideSeek.State = State
 local function clearFound()
   wipe(State.foundOrder)
   wipe(State.foundSet)
+  wipe(State.hiderReadySet)
 end
 
 -- --- Game rounds (party/raid leader) ----------------------------------------

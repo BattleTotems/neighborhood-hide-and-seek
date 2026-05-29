@@ -85,22 +85,22 @@ local GAME_MODES = {
     description = "hiders only get 30 seconds to hide. The search times are reduced.",
     tooltip = "Only 30 seconds to hide. Shorter search time.",
   },
-  time_trial = {
-    id = "time_trial",
-    label = "Time Trial",
-    hudLabel = "Time Trial",
+  overtime = {
+    id = "overtime",
+    label = "Overtime",
+    hudLabel = "Overtime",
     hotColdIndicator = false,
     searchSecChange = 0,
     hideSecOverride = 60,
     searchSecOverride = 90,
     seekers = 1,
-    description = "hiders get 60 seconds to hide. Seekers start with 90 seconds to search, but each player found adds 60 seconds back to the clock.",
-    tooltip = "60s to hide, 90s to seek. Each player found adds 60s back to the clock.",
+    description = "hiders get 60 seconds to hide. Seekers start with 90 seconds to search, but each player found adds 30 seconds back to the clock.",
+    tooltip = "60s to hide, 90s to seek. Each player found adds 30s back to the clock.",
   },
 }
 
 NHS.GAME_MODES = GAME_MODES
-NHS.GAME_MODE_IDS = { "normal", "normal_plus", "hot_cold", "paired", "conquer", "chosen_one", "lightning", "time_trial" }
+NHS.GAME_MODE_IDS = { "normal", "normal_plus", "hot_cold", "paired", "conquer", "chosen_one", "lightning", "overtime" }
 
 function NHS.IsValidGameMode(modeId)
   return type(modeId) == "string" and GAME_MODES[modeId] ~= nil
@@ -196,13 +196,13 @@ function NHS.GetRoundHideSeconds(baseSec)
   return baseSec
 end
 
-function NHS.IsTimeTrial()
-  return NHS.GetEffectiveGameModeId() == "time_trial"
+function NHS.IsOvertime()
+  return NHS.GetEffectiveGameModeId() == "overtime"
 end
 
--- Leader-only: called after each found in Time Trial mode to add 60 s to the running clock.
-function NHS.TimeTrialOnFound()
-  if not NHS.IsTimeTrial() then return end
+-- Leader-only: called after each found in Overtime mode to add 30 s to the running clock.
+function NHS.OvertimeOnFound()
+  if not NHS.IsOvertime() then return end
   local bmf = NHS.BuildMainFrameBridge
   if not bmf or not bmf.nhsIsRoundLeader or not bmf.nhsIsRoundLeader() then return end
   if State.phase ~= NHS.Phase.SEARCHING then return end
@@ -210,7 +210,7 @@ function NHS.TimeTrialOnFound()
 
   local elapsed = GetTime() - State.searchPhaseStartTime
   local remaining = math.max(0, State.searchPhaseDuration - elapsed)
-  local newDur = math.floor(remaining + 60)
+  local newDur = math.floor(remaining + 30)
   if newDur < 1 then return end
 
   State.searchPhaseStartTime = GetTime()
@@ -224,7 +224,7 @@ function NHS.TimeTrialOnFound()
     local mins = math.floor(newDur / 60)
     local secs = newDur % 60
     local timeStr = mins > 0 and ("%dm %ds"):format(mins, secs) or ("%ds"):format(secs)
-    bmf.nhsBroadcastLeaderSync(("[NHS] Time Trial: +60s — %s remaining"):format(timeStr))
+    bmf.nhsBroadcastLeaderSync(("[NHS] Overtime: +30s — %s remaining"):format(timeStr))
   end
 end
 

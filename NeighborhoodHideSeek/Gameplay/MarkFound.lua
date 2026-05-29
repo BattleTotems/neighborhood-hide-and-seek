@@ -106,8 +106,8 @@ local function markTargetFound(opts)
   end
   print(("|cff88ff88[NHS]|r Marked found: %s"):format(disp))
   NHS.GroupSync.BroadcastSeekerFound(key)
-  if NHS.TimeTrialOnFound then
-    NHS.TimeTrialOnFound()
+  if NHS.OvertimeOnFound then
+    NHS.OvertimeOnFound()
   end
   if NHS.SyncHiddenRangePoll then
     NHS.SyncHiddenRangePoll()

@@ -1764,6 +1764,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
         NHS.PlayHidingPhaseStartSound()
       end
     elseif phase == Phase.SEARCHING then
+      wipe(State.hiderReadySet)
       State.phase = Phase.SEARCHING
       local keyParts = {}
       for _, k in ipairs(State.gameLockedSeekerKeys) do
