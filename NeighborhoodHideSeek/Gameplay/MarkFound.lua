@@ -91,6 +91,10 @@ local function markTargetFound(opts)
   State.foundSet[key] = true
   State.foundOrder[#State.foundOrder + 1] = key
   -- Conquer mode: add the found player to the seeker list so they can broadcast finds.
+  -- NOTE: only gameLockedSeekerKeys is extended here — gameRotationUsed is intentionally
+  -- NOT updated. Conquer-conscripted seekers must remain eligible for future rounds;
+  -- only the originally-confirmed seeker(s) (marked in nhsDoConfirmSeeker) count toward
+  -- the per-player seeker rotation.
   if NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId() == "conquer" then
     local alreadySeeker = false
     for _, k in ipairs(dskKeys) do

@@ -311,6 +311,9 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
     NHS.OvertimeOnFound()
   end
   -- Conquer mode: found players join the seeker team so they can broadcast finds.
+  -- NOTE: only the seeker key list is extended here — gameRotationUsed is intentionally
+  -- NOT updated. Conquer-conscripted seekers must remain eligible for future rounds;
+  -- only the originally-confirmed seeker(s) count toward the per-player seeker rotation.
   if NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId() == "conquer" and IsRoundPhase(C.State.phase) then
     local alreadyIn = false
     local targetList = C.State.gameSessionActive and C.State.gameLockedSeekerKeys

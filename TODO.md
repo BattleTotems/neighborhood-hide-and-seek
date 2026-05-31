@@ -8,3 +8,13 @@ Ideas:
 - if using group house list, check names against saved to see if we can get house pin
 - how to play timers doesn't show seconds
 - /reload clears the current neighborhood cache
+
+
+
+Duck Disguiser <- Requires player interaction
+Etheric Brannmorpher <- Requires player interaction
+
+Gem of Acquiescence <- seeker
+Giggle goggles <- seeker
+Overtuned Corgi Goggles <- Seeker
+
