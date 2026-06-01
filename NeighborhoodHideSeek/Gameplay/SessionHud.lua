@@ -292,6 +292,19 @@ local function nhsSessionHudUpdate()
       hud._readyBtn:Hide()
     end
   end
+  -- Toy button: visible for Toy & Seek hiders during the searching phase only.
+  -- Position is fixed at creation time (BOTTOMLEFT of hud + 12, 14) — never
+  -- reposition from here, because ClearAllPoints/SetPoint on a
+  -- SecureActionButtonTemplate from tainted Lua silently fails in modern WoW.
+  local showToyBtn = hud._toyBtn
+    and (NHS.ToyAndSeek and NHS.ToyAndSeek.IsHider and NHS.ToyAndSeek.IsHider())
+  if hud._toyBtn then
+    if showToyBtn then
+      hud._toyBtn:Show()
+    else
+      hud._toyBtn:Hide()
+    end
+  end
   local padBottom = 14
   local hTitle = hud._title:GetStringHeight() or 12
   local hPhase = hud._phaseLine:GetStringHeight() or 12
@@ -302,7 +315,7 @@ local function nhsSessionHudUpdate()
   local hClosest = closestRange and (hud._closestRangeLine:GetStringHeight() or 12) or 0
   local hFound = hud._foundLine:GetStringHeight() or 12
   local gapClosest = closestRange and 6 or 0
-  local hBtn = (showSeekerBtn and 32 or 0) + (showReadyBtn and 32 or 0)
+  local hBtn = (showSeekerBtn and 32 or 0) + (showReadyBtn and 32 or 0) + (showToyBtn and 32 or 0)
   local totalH = 12 + hTitle + 10 + hPhase + 4 + hMode + 4 + hHouse + 4 + hSeek + 8 + hHid + gapClosest + hClosest + 6 + hFound + hBtn + padBottom
   hud:SetHeight(math.max(130, math.min(360, totalH)))
 end
@@ -442,6 +455,11 @@ local function nhsInitSessionHud()
   end)
   readyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
   readyBtn:Hide()
+  -- Toy & Seek hider button (SecureActionButtonTemplate).  Must be a child of this
+  -- frame so it moves with it and the player's click is treated as a hardware event.
+  if NHS.ToyAndSeek and NHS.ToyAndSeek.InitHudButton then
+    NHS.ToyAndSeek.InitHudButton(hud)
+  end
   hud._phaseLine = phaseLine
   hud._gameModeLine = gameModeLine
   hud._houseLine = houseLine

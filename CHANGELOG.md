@@ -2,6 +2,12 @@
 
 All notable changes to Neighborhood Hide and Seek are documented in this file.
 
+## [1.2.3]
+
+### Added
+- Added a new game mode: Toy & Seek
+
+
 ## [1.2.2]
 
 ### Added

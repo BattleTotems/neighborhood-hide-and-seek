@@ -108,10 +108,21 @@ local GAME_MODES = {
     description = "hiders must keep moving. Every 10 seconds, the seeker receives a waypoint arrow pointing to whichever hider has been stationary the longest.",
     tooltip = "Hiders must keep moving. Every 10s the seeker gets a waypoint to the longest-stationary hider.",
   },
+  toy_and_seek = {
+    id = "toy_and_seek",
+    label = "Toy & Seek",
+    hudLabel = "Toy & Seek",
+    hotColdIndicator = false,
+    searchSecChange = 0,
+    hideSecOverride = nil,
+    seekers = 1,
+    description = "hiders get a button (30-second cooldown) that uses a random toy from the group's common pool and sends a random hindrance to the seeker. Requires all group members to own at least one toy in common.",
+    tooltip = "Hiders use toys to disguise themselves and prank the seeker. Common toy pool required.",
+  },
 }
 
 NHS.GAME_MODES = GAME_MODES
-NHS.GAME_MODE_IDS = { "normal", "normal_plus", "hot_cold", "paired", "conquer", "chosen_one", "lightning", "overtime", "bloodhound" }
+NHS.GAME_MODE_IDS = { "normal", "normal_plus", "hot_cold", "paired", "conquer", "chosen_one", "lightning", "overtime", "bloodhound", "toy_and_seek" }
 
 function NHS.IsValidGameMode(modeId)
   return type(modeId) == "string" and GAME_MODES[modeId] ~= nil

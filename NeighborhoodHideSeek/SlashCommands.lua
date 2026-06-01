@@ -30,6 +30,14 @@ local function nhsSlashHandler(msg, editBox)
     print(("[NHS] debugSync = %s (traces addon messages, DoCountdown return values, and phase sync)"):format(tostring(NHS.debugSync)))
     return
   end
+  if cmd == "testtas" then
+    if NHS.ToyAndSeek and NHS.ToyAndSeek.ToggleTestPanel then
+      NHS.ToyAndSeek.ToggleTestPanel()
+    else
+      print("|cffff4444[NHS]|r Toy & Seek test panel not available (ToyAndSeekTest.lua loaded?)")
+    end
+    return
+  end
   if cmd == "visitinfo" or cmd == "visitdebug" or cmd == "whyvisit" then
     pcall(function()
       NHS.HousingApi.PrintVisitDiagnostics(State.selectedEntry, State.selectedIndex)

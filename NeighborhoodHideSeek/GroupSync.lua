@@ -339,6 +339,10 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
   elseif C.nhsSessionHudUpdate then
     C.nhsSessionHudUpdate()
   end
+  -- If this client's player was just found, hide the Toy & Seek hider HUD immediately.
+  if NHS.SyncToyAndSeekMode then
+    NHS.SyncToyAndSeekMode()
+  end
   C.nhsPersistGameSessionToSaved()
   return true
 end
@@ -482,6 +486,10 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
         C.State.remoteSessionActive = true
         C.State.remoteGameMode = modeId
         C.State.phase = Phase.PICK_SEEKER
+        -- Toy & Seek: follower triggers ownership broadcast so pool can be computed.
+        if modeId == "toy_and_seek" and C.nhsTASOnModeSelected then
+          C.nhsTASOnModeSelected()
+        end
       end
     end
   elseif text:match("^%[NHS%]%s*Game session started%s*$") then
@@ -733,6 +741,13 @@ local function nhsBroadcastLeaderGameMode(modeId)
   if warning and #warning <= 255 then
     nhsGameplaySendChatIfOutOfCombat(warning, nhsGroupSyncChannel())
   end
+  -- Toy & Seek: leader triggers ownership broadcast on their own client immediately.
+  if modeId == "toy_and_seek" then
+    local bmf = NHS.BuildMainFrameBridge
+    if bmf and bmf.nhsTASOnModeSelected then
+      bmf.nhsTASOnModeSelected()
+    end
+  end
 end
 
 NHS.GroupSync = {
@@ -823,6 +838,9 @@ local function nhsDispatchGroupNhsLine(senderName, text)
     return
   end
   if nhsApplyHiderReady(senderName, text) then
+    return
+  end
+  if C.nhsTASApplyStrike and C.nhsTASApplyStrike(senderName, text) then
     return
   end
   nhsApplyGroupSyncFromLeader(senderName, text)

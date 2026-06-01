@@ -196,6 +196,12 @@ loader:SetScript("OnEvent", function(_, event, name)
     NeighborhoodHideSeek.InitMinimapButton()
     NeighborhoodHideSeek.HydrateGameSessionFromSaved()
     NeighborhoodHideSeek.PersistGameSessionToSaved()
+    -- HydrateGameSessionFromSaved has early-return paths (follower, already-active) that
+    -- skip SyncHiddenRangePoll.  Call it here unconditionally so mode-specific HUDs
+    -- (e.g. the Toy & Seek hider button) are always restored after a /reload.
+    if NeighborhoodHideSeek.SyncHiddenRangePoll then
+      NeighborhoodHideSeek.SyncHiddenRangePoll()
+    end
     if NeighborhoodHideSeek.GroupSync and NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded then
       NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded()
     end

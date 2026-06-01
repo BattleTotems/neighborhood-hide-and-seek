@@ -333,6 +333,9 @@ function NHS.SyncHiddenRangePoll()
   if NHS.SyncBloodhoundPolls then
     NHS.SyncBloodhoundPolls()
   end
+  if NHS.SyncToyAndSeekMode then
+    NHS.SyncToyAndSeekMode()
+  end
 end
 
 -- Normal Plus: every 10 s the seeker broadcasts the closest hidden player's key.

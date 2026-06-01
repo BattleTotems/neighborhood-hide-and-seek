@@ -138,14 +138,14 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   gameModeRandomBtn:SetSize(150, 22)
   gameModeRandomBtn:SetText("Random")
   gameModeRandomBtn:Hide()
+  -- Random always sits on its own full-width row below the mode grid.
+  -- When the count is odd the last button is already in the left column (_gmn).
+  -- When the count is even the last left-column button is at _gmn - 1.
+  -- Either way we anchor to that button's BOTTOMLEFT and span the full 308 px.
   local _gmn = #NHS.GAME_MODE_IDS
-  if _gmn % 2 == 0 then
-    gameModeRandomBtn:SetSize(150, 22)
-    gameModeRandomBtn:SetPoint("TOPLEFT", gameModeButtons[_gmn - 1], "BOTTOMLEFT", 0, -4)
-  else
-    gameModeRandomBtn:SetSize(308, 22)
-    gameModeRandomBtn:SetPoint("TOPLEFT", gameModeButtons[_gmn], "BOTTOMLEFT", 0, -4)
-  end
+  local _gmnLastLeft = (_gmn % 2 == 0) and (_gmn - 1) or _gmn
+  gameModeRandomBtn:SetSize(308, 22)
+  gameModeRandomBtn:SetPoint("TOPLEFT", gameModeButtons[_gmnLastLeft], "BOTTOMLEFT", 0, -4)
   gameModeRandomBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText("Random", 1, 1, 1)

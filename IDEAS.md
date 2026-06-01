@@ -33,13 +33,15 @@ Game Modes:
 
   ---
 
-  Sound effects (6 total — played on the seeker's client):
+  Sound effects (5 total — played on the seeker's client):
   1. Murloc Aggro — "Mrglglglgl!"                          SoundKit ID: 416
   2. Illidan — "You are not prepared!"                     Wowhead sound ID: 11466
   3. Xal'atath whisper (pick best line at implementation)  Wowhead sound ID: 126854 (and others)
-  4. Doomwalker howl/roar                                  FileDataID: TBD via wow.tools
-  5. Raid Warning Siren                                    SOUNDKIT.RAID_WARNING constant
-  6. Malfurion — "So says the shadow of Xavius."          Wowhead sound ID: 54460
+  4. Raid Warning Siren                                    SOUNDKIT.RAID_WARNING constant
+  5. Fel Reaver horn                                       FileDataID: 548880
+
+  Considered but not used:
+  - Malfurion — "So says the shadow of Xavius."           SoundKit ID: 54460
                                                            (NPC 100652, Darkheart Thicket)
 
   ---
@@ -71,7 +73,7 @@ Game Modes:
 
   ---
 
-  Toy pool (46 toys — all require player to own them):
+  Toy pool (54 toys — all require player to own them):
   - Gamon's Braid
   - G.O.L.E.M. Jr.
   - Professor Chipsnide's Im-PECK-able Harpy Disguise
@@ -82,9 +84,12 @@ Game Modes:
   - Bones of Transformation
   - Book of the Unshackled
   - Candleflexer's Dumbbell
+  - Cursed Orb
   - Dark Ranger's Spare Cowl
   - Death's Door Charm
   - Deceptia's Smoldering Boots
+  - Delicate Jade Parasol
+  - Enchanted Soup Stone
   - Etheric Victory
   - Faintly Glowing Flagon of Mead
   - Heartsbane Grimoire
@@ -93,6 +98,7 @@ Game Modes:
   - Home Made Party Mask
   - Illusive Kobyss Lure
   - Iron Boot Flask
+  - Jar of Excess Slime
   - Klikixx's Webspinner
   - Kovork Kostume
   - Krastinov's Bag of Horrors
@@ -107,9 +113,13 @@ Game Modes:
   - Personal Spotlight
   - Pileus Delight
   - Pretty Draenor Pearl
+  - Primalist Prison
   - Robo-Gnomebulator
+  - Set of Matches
   - Sira's Extra Cloak
+  - Spectral Visage
   - Spore-Bound Essence
+  - Stasis Sand
   - Stormforged Vrykul Horn
   - Talisman of Sargha
   - Thistleleaf Branch
@@ -119,7 +129,5 @@ Game Modes:
   - Wisp Amulet
   - Yennu's Kite
 
-  Excluded from pool (would disrupt gameplay):
-  - Set of Matches       <- forced movement
-  - Jar of Excess Slime  <- forced movement
-  - Stasis Sand          <- 1 min stun
+  Excluded from pool:
+  (none currently)
