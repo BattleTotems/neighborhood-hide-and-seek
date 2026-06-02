@@ -17,7 +17,7 @@ local NHS = NeighborhoodHideSeek
 local State = NHS.State
 local Phase = NHS.Phase
 
--- ─── Toy list (54 items — all require player ownership) ──────────────────────
+-- ─── Toy list (56 items — all require player ownership) ──────────────────────
 -- Item IDs sourced from Wowhead; verify any marked "?" in-game.
 local TOY_LIST = {
   { id = 118937, name = "Gamon's Braid" },
@@ -26,6 +26,7 @@ local TOY_LIST = {
   { id = 230924, name = "Spotlight Materializer 1000" },
   { id = 37254,  name = "Super Simian Sphere" },
   { id = 129165, name = "Barnacle-Encrusted Gem" },
+  { id = 205418, name = "Blazing Shadowflame Cinder" },
   { id = 113096, name = "Bloodmane Charm" },
   { id = 64646,  name = "Bones of Transformation" },
   { id = 170154, name = "Book of the Unshackled" },
@@ -54,6 +55,7 @@ local TOY_LIST = {
   { id = 141862, name = "Mote of Light" },
   { id = 138873, name = "Mystical Frosh Hat" },
   { id = 35275,  name = "Orb of the Sin'dorei" },
+  { id = 268717, name = "Pango Plating" },
   { id = 130158, name = "Path of Elothir" },
   { id = 198409, name = "Personal Shell" },
   { id = 127864, name = "Personal Spotlight" },
@@ -156,8 +158,18 @@ local function nhsTASHindranceLowHealth()
 end
 
 -- Hindrance: Screen color tint (random color, fades out).
+-- One voice line fires at random from the pool each time.
 local nhsTintFrame
+local TINT_VOICE_LINES = {
+  54460,   -- Malfurion  "So says the shadow of Xavius"           (NPC 100652, Darkheart Thicket)
+  17126,   -- Putricide  "Good news! I fixed the slime pipes!"    (IC_Putricide_SlimeFlow01 — verify in-game)
+  28292,   -- Uncle Gao  "Yes! Yes, yes! No! PEPPERS!"            (NPC 59074, Stormstout Brewery)
+  21921,   -- Ozruk      "Break yourselves upon my body!"          (VO_SC_Ozruk_Event03, The Stonecore)
+  65819,   -- Duskwatch  "An illusion! What are you hiding?"       (VO_SC_Duskwatch_Orbitist, Suramar)
+  270304,  -- Gallywix   "Nice job, morons!"                       (VO_1110_Jastor_Gallywix, Liberation of Undermine)
+}
 local function nhsTASHindranceColorTint()
+  pcall(PlaySound, TINT_VOICE_LINES[math.random(#TINT_VOICE_LINES)], "Dialog")
   if not nhsTintFrame then
     nhsTintFrame = CreateFrame("Frame", nil, UIParent)
     nhsTintFrame:SetAllPoints(UIParent)
@@ -409,6 +421,11 @@ local function nhsTASPopupLeeroy()
   local chargeTime = 0.75
   local elapsed    = 0
   local impacted   = false
+  -- Whelp aggro sound fires 0.5 s before impact so it feels like the whelps
+  -- notice the warrior charging in rather than reacting after the hit.
+  C_Timer.After(chargeTime - 0.5, function()
+    pcall(PlaySound, 428, "Master")  -- whelp aggro (DragonWhelpAggro)
+  end)
   wFrm:SetScript("OnUpdate", function(self, dt)
     elapsed = elapsed + dt
     local pct = math.min(elapsed / chargeTime, 1)
@@ -627,6 +644,9 @@ local function nhsTASPopupThunderfury()
   root:SetFrameLevel(110)
   root:Show()
 
+  -- Chat ping fires immediately — as if someone just linked the item at you in Trade.
+  pcall(PlaySound, SOUNDKIT and SOUNDKIT.TELL_MESSAGE or 3081, "Master")
+
   local function typeOut(str, target, idx, onDone)
     idx = idx or 1
     if idx > #str then if onDone then onDone() end; return end
@@ -683,6 +703,7 @@ local function nhsTASPopupThunderfury()
     typeOut(PRE_TEXT, preLbl, 1, function()
       C_Timer.After(0.35, function()
         UIFrameFadeIn(sfFrm, 0.4, 0, 1)
+        pcall(PlaySound, 13006, "Master")  -- Shaman Thunderstorm impact
         C_Timer.After(0.5, function()
           typeOut(FULL_TEXT, mainLbl)
         end)
