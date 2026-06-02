@@ -80,24 +80,31 @@ local function nhsGetGroupRoster()
   return bmf.nhsGetGroupRoster()
 end
 
--- Returns a set (key→true) of all seeker keys to exclude from hidden-player lists.
-local function nhsSeekerKeySetForHiddenLists()
-  local set = {}
-  local function addKeys(list)
-    for _, k in ipairs(list) do
-      set[k] = true
-    end
-  end
+-- Returns the list of role keys (seekers in normal modes; the hider in hider mode).
+local function nhsCollectRoleKeys()
+  local keys = {}
   if State.remoteSessionActive and IsRoundPhase(State.phase) then
-    addKeys(State.remoteSeekerKeys)
+    for _, k in ipairs(State.remoteSeekerKeys) do keys[#keys + 1] = k end
   end
   if State.gameSessionActive and IsRoundPhase(State.phase) then
-    addKeys(State.gameLockedSeekerKeys)
+    for _, k in ipairs(State.gameLockedSeekerKeys) do keys[#keys + 1] = k end
   end
   if State.gameSessionActive and State.phase == Phase.PICK_SEEKER then
-    addKeys(State.gameCandidateKeys)
+    for _, k in ipairs(State.gameCandidateKeys) do keys[#keys + 1] = k end
   end
-  return set
+  return keys
+end
+
+-- True if memberKey matches any key in roleKeys, using fuzzy matching to handle
+-- realm-format differences (e.g. "Name-Realm" vs "Name" for same-realm members).
+local function nhsMatchesAnyRoleKey(memberKey, roleKeys)
+  for _, k in ipairs(roleKeys) do
+    if memberKey == k then return true end
+    if NHS.GroupSortKeysEquivalent and NHS.GroupSortKeysEquivalent(memberKey, k) then
+      return true
+    end
+  end
+  return false
 end
 
 local function nhsAnyItemInRange(itemIDs, unit)
@@ -176,11 +183,11 @@ function NHS.GetApproxRange(unit)
 end
 
 local function nhsHiddenPlayerEntries()
-  local roleSet = nhsSeekerKeySetForHiddenLists()
+  local roleKeys = nhsCollectRoleKeys()
   local roster = nhsGetGroupRoster()
   local entries = {}
   for _, m in ipairs(roster) do
-    if not roleSet[m.key] and not State.foundSet[m.key] then
+    if not nhsMatchesAnyRoleKey(m.key, roleKeys) and not State.foundSet[m.key] then
       entries[#entries + 1] = m
     end
   end
@@ -336,6 +343,9 @@ function NHS.SyncHiddenRangePoll()
   if NHS.SyncToyAndSeekMode then
     NHS.SyncToyAndSeekMode()
   end
+  if NHS.SyncHiderProximityPoll then
+    NHS.SyncHiderProximityPoll()
+  end
 end
 
 -- Normal Plus: every 10 s the seeker broadcasts the closest hidden player's key.
@@ -377,6 +387,92 @@ function NHS.SyncNormalPlusNearestPoll()
 end
 
 NHS.HiddenRangePoll = hiddenRangePoll
+
+-- ─── Hider proximity warning ──────────────────────────────────────────────────
+-- During searching, if any seeker comes within 10 yards of the local hider,
+-- flash the LowHealthFrame as a danger warning. Clears when they move away or
+-- the hider is found.
+
+local HIDER_PROXIMITY_WARN_YARDS = 10
+local nhsHiderProximityActive = false
+
+-- True when the local player is a still-hidden hider during the searching phase.
+local function nhsLocalPlayerIsHiderSearching()
+  if State.phase ~= Phase.SEARCHING then return false end
+  if not State.gameSessionActive and not State.remoteSessionActive then return false end
+  local myKey = NHS.LocalPlayerSortKey and NHS.LocalPlayerSortKey()
+  if not myKey then return false end
+  if State.foundSet[myKey] then return false end
+  return not (NHS.LocalPlayerIsDesignatedSeeker and NHS.LocalPlayerIsDesignatedSeeker())
+end
+
+-- Returns a list of seeker units from the local hider's perspective.
+local function nhsGetSeekerUnitsForHider()
+  local roster = nhsGetGroupRoster()
+  local roleKeys = nhsCollectRoleKeys()
+  local units = {}
+  for _, m in ipairs(roster) do
+    if nhsMatchesAnyRoleKey(m.key, roleKeys) and m.unit then
+      units[#units + 1] = m.unit
+    end
+  end
+  return units
+end
+
+local function nhsStartHiderProximityWarning()
+  if nhsHiderProximityActive then return end
+  nhsHiderProximityActive = true
+  if UIFrameFlash and LowHealthFrame then
+    UIFrameFlash(LowHealthFrame, 0.5, 0.5, 9999, false, 0.2, 0)
+  end
+end
+
+local function nhsStopHiderProximityWarning()
+  if not nhsHiderProximityActive then return end
+  nhsHiderProximityActive = false
+  if LowHealthFrame then
+    if UIFrameFlashStop then
+      UIFrameFlashStop(LowHealthFrame)
+    end
+    LowHealthFrame:Hide()
+  end
+end
+
+local hiderProximityPoll = CreateFrame("Frame")
+hiderProximityPoll:Hide()
+hiderProximityPoll:SetScript("OnUpdate", function(self, elapsed)
+  self._acc = (self._acc or 0) + elapsed
+  if self._acc < 0.35 then return end
+  self._acc = 0
+  if not nhsLocalPlayerIsHiderSearching() then
+    nhsStopHiderProximityWarning()
+    self:Hide()
+    return
+  end
+  local seekerNearby = false
+  for _, unit in ipairs(nhsGetSeekerUnitsForHider()) do
+    local d = nhsDistanceYards(unit)
+    if d and d <= HIDER_PROXIMITY_WARN_YARDS then
+      seekerNearby = true
+      break
+    end
+  end
+  if seekerNearby then
+    nhsStartHiderProximityWarning()
+  else
+    nhsStopHiderProximityWarning()
+  end
+end)
+
+function NHS.SyncHiderProximityPoll()
+  if nhsLocalPlayerIsHiderSearching() then
+    hiderProximityPoll._acc = 0.35
+    hiderProximityPoll:Show()
+  else
+    nhsStopHiderProximityWarning()
+    hiderProximityPoll:Hide()
+  end
+end
 
 local bmf = NHS.BuildMainFrameBridge
 if bmf then

@@ -3,6 +3,15 @@
   Loaded after Core.lua; see NeighborhoodHideSeek.toc (Ui/HowToPlay.lua).
 ]]
 
+local function formatMinSec(totalSec)
+  local mins = math.floor(totalSec / 60)
+  local secs = totalSec % 60
+  if secs == 0 then
+    return mins .. " min"
+  end
+  return mins .. " min " .. secs .. " sec"
+end
+
 local function houseSizePresetsMinutesBullet()
   local pr = NeighborhoodHideSeek.ROUND_PRESETS
   if not pr or #pr == 0 then
@@ -11,10 +20,10 @@ local function houseSizePresetsMinutesBullet()
   local lines = {}
   for i = 1, #pr do
     local p = pr[i]
-    lines[#lines + 1] = ("• %s: %d min hiding, %d min searching."):format(
+    lines[#lines + 1] = ("• %s: %s hiding, %s searching."):format(
       p.label,
-      p.hideSec / 60,
-      p.searchSec / 60
+      formatMinSec(p.hideSec),
+      formatMinSec(p.searchSec)
     )
   end
   return table.concat(lines, "\n")

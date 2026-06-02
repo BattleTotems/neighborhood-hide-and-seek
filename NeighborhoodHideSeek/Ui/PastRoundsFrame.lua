@@ -36,7 +36,7 @@ function NHS.CreatePastRoundsFrame()
   pastRoundsTitle:SetText("Previous Rounds")
   local pastRoundsScroll = CreateFrame("ScrollFrame", nil, pastRoundsFrame)
   pastRoundsScroll:SetPoint("TOPLEFT", 16, -42)
-  pastRoundsScroll:SetSize(288, 310)
+  pastRoundsScroll:SetSize(288, 290)
   NHS.SetupScrollFrameMouseWheel(pastRoundsScroll)
 
   local pastRoundsScrollChild = CreateFrame("Frame", nil, pastRoundsScroll)
@@ -55,6 +55,111 @@ function NHS.CreatePastRoundsFrame()
   pastRoundsCloseBtn:SetScript("OnClick", function()
     pastRoundsFrame:Hide()
   end)
+
+  -- Export dialog: lazy-built floating frame with a pre-selected EditBox.
+  -- WoW does not expose a reliable programmatic clipboard write API to addons,
+  -- so the standard workaround is to focus a pre-filled EditBox so the player
+  -- can press Ctrl+C (or Ctrl+A, Ctrl+C for multi-line).
+  local exportDialog
+
+  local function buildExportText()
+    local lines = { "=== Neighborhood Hide & Seek ===" }
+    if #State.pastRounds == 0 then
+      lines[#lines + 1] = "No completed rounds."
+    else
+      for i, r in ipairs(State.pastRounds) do
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "Round " .. i
+        lines[#lines + 1] = r.house or ""
+        if r.mode and r.mode ~= "" then
+          lines[#lines + 1] = r.mode
+        end
+        lines[#lines + 1] = r.seeker or ""
+        lines[#lines + 1] = r.hidden or ""
+        lines[#lines + 1] = r.found or ""
+      end
+    end
+    return table.concat(lines, "\n")
+  end
+
+  local function showExportDialog(text)
+    if not exportDialog then
+      local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+      f:SetSize(360, 280)
+      f:SetPoint("CENTER")
+      f:SetFrameStrata("DIALOG")
+      f:SetMovable(true)
+      f:EnableMouse(true)
+      f:RegisterForDrag("LeftButton")
+      f:SetScript("OnDragStart", f.StartMoving)
+      f:SetScript("OnDragStop", f.StopMovingOrSizing)
+      f:SetClampedToScreen(true)
+      f:SetBackdrop({
+        bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 16,
+        insets = { left = 8, right = 8, top = 8, bottom = 8 },
+      })
+      f:SetBackdropColor(0, 0, 0, 0.9)
+
+      local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+      title:SetPoint("TOP", 0, -12)
+      title:SetText("Round History")
+
+      local hint = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+      hint:SetPoint("TOP", 0, -30)
+      hint:SetText("Press Ctrl+A, Ctrl+C to copy.")
+
+      local scroll = CreateFrame("ScrollFrame", nil, f)
+      scroll:SetPoint("TOPLEFT", 16, -50)
+      scroll:SetPoint("BOTTOMRIGHT", -16, 36)
+      NHS.SetupScrollFrameMouseWheel(scroll)
+
+      local eb = CreateFrame("EditBox", nil, scroll)
+      eb:SetMultiLine(true)
+      eb:SetMaxLetters(0)
+      eb:SetAutoFocus(false)
+      eb:SetFontObject(GameFontHighlightSmall)
+      eb:SetWidth(320)
+      eb:SetScript("OnEscapePressed", function() f:Hide() end)
+      scroll:SetScrollChild(eb)
+
+      local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
+      closeBtn:SetPoint("TOPRIGHT", -4, -4)
+      closeBtn:SetScript("OnClick", function() f:Hide() end)
+
+      local doneBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+      doneBtn:SetSize(80, 22)
+      doneBtn:SetPoint("BOTTOM", 0, 10)
+      doneBtn:SetText("Close")
+      doneBtn:SetScript("OnClick", function() f:Hide() end)
+
+      f._eb = eb
+      f:Hide()
+      exportDialog = f
+    end
+
+    exportDialog._eb:SetText(text)
+    exportDialog._eb:SetFocus()
+    exportDialog._eb:HighlightText()
+    exportDialog:Show()
+  end
+
+  local copyBtn = CreateFrame("Button", nil, pastRoundsFrame, "UIPanelButtonTemplate")
+  copyBtn:SetSize(150, 24)
+  copyBtn:SetPoint("BOTTOM", pastRoundsFrame, "BOTTOM", 0, 12)
+  copyBtn:SetText("Export Rounds")
+  copyBtn:SetScript("OnClick", function()
+    showExportDialog(buildExportText())
+  end)
+  copyBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText("Export Rounds")
+    GameTooltip:AddLine("Opens the round history as selectable text.\nPress Ctrl+A, Ctrl+C to copy, then paste e.g. into Discord.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  copyBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
   pastRoundsFrame:Hide()
 
   local function refreshPastRoundsPanel()

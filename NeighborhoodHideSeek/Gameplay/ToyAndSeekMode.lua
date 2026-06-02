@@ -858,16 +858,16 @@ local function nhsTASInitHudButton(hud)
   tasVisBtn:SetScript("OnEnter", function(self)
     nhsTASRefreshBtnToy()
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Toy & Seek", 1, 1, 1)
+    GameTooltip:SetText("Toying Around", 1, 1, 1)
     local count = 0
     for _, toy in ipairs(TOY_LIST) do
       if PlayerHasToy and PlayerHasToy(toy.id) then count = count + 1 end
     end
     if count == 0 then
-      GameTooltip:AddLine("You don't own any Toy & Seek toys.", 1, 0.5, 0.5, true)
+      GameTooltip:AddLine("You don't own any compatible toys.", 1, 0.5, 0.5, true)
     else
       GameTooltip:AddLine(
-        ("You own %d Toy & Seek toy(s). Click to use one and send a surprise to the seeker!"):format(count),
+        ("You own %d compatible toy(s). Click to use one and send a surprise to the seeker!"):format(count),
         nil, nil, nil, true
       )
     end

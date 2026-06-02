@@ -98,7 +98,7 @@ local function nhsTASTestBuildPanel()
   -- Title
   local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   title:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD_X, -12)
-  title:SetText("|cff88ccffToy & Seek — Seeker Test|r")
+  title:SetText("|cff88ccffToying Around — Seeker Test|r")
   title:Show()
 
   -- Close button

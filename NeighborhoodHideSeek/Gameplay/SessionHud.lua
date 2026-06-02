@@ -153,21 +153,31 @@ end
 
 -- Everyone still hiding (not marked found), with ready status.
 -- Returns sorted list of { name, ready } entries.
+-- Uses fuzzy key matching (GroupSortKeysEquivalent) so realm-format differences
+-- between how the leader broadcasts their key vs how they appear in the roster
+-- don't cause a seeker to slip into the hidden list.
 local function nhsSessionHudHiddenPlayerEntries()
-  local roleSet = {}
+  local roleKeys = {}
   if State.remoteSessionActive and IsRoundPhase(State.phase) then
-    for _, k in ipairs(State.remoteSeekerKeys) do roleSet[k] = true end
+    for _, k in ipairs(State.remoteSeekerKeys) do roleKeys[#roleKeys + 1] = k end
   end
   if State.gameSessionActive and IsRoundPhase(State.phase) then
-    for _, k in ipairs(State.gameLockedSeekerKeys) do roleSet[k] = true end
+    for _, k in ipairs(State.gameLockedSeekerKeys) do roleKeys[#roleKeys + 1] = k end
   end
   if State.gameSessionActive and State.phase == Phase.PICK_SEEKER then
-    for _, k in ipairs(State.gameCandidateKeys) do roleSet[k] = true end
+    for _, k in ipairs(State.gameCandidateKeys) do roleKeys[#roleKeys + 1] = k end
   end
   local roster = nhsGetGroupRoster()
   local entries = {}
   for _, m in ipairs(roster) do
-    if not roleSet[m.key] and not State.foundSet[m.key] then
+    local inRoleKeys = false
+    for _, k in ipairs(roleKeys) do
+      if m.key == k or (NHS.GroupSortKeysEquivalent and NHS.GroupSortKeysEquivalent(m.key, k)) then
+        inRoleKeys = true
+        break
+      end
+    end
+    if not inRoleKeys and not State.foundSet[m.key] then
       entries[#entries + 1] = {
         name = Ambiguate(m.key, "short"),
         ready = State.hiderReadySet[m.key] == true,

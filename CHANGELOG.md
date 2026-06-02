@@ -2,6 +2,20 @@
 
 All notable changes to Neighborhood Hide and Seek are documented in this file.
 
+## [1.2.4]
+
+### Added
+- Hiders now receive a low health frame warning when any seeker is within 10 yards while hiding
+- Previous Rounds panel now has an "Export Rounds" button that opens the round history as selectable text (Ctrl+A, Ctrl+C to copy, e.g. into Discord)
+
+### Changed
+- Renamed game mode "Toy & Seek" to "Toying Around"
+- How To Play screen now shows full minutes and seconds for house size preset times (e.g. "5 min 30 sec")
+
+### Fixed
+- Fixed the leader appearing in the hidden list on non-leader clients when the leader is a seeker (realm-format key mismatch)
+
+
 ## [1.2.3]
 
 ### Added

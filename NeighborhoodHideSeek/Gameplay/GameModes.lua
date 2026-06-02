@@ -110,8 +110,8 @@ local GAME_MODES = {
   },
   toy_and_seek = {
     id = "toy_and_seek",
-    label = "Toy & Seek",
-    hudLabel = "Toy & Seek",
+    label = "Toying Around",
+    hudLabel = "Toying Around",
     hotColdIndicator = false,
     searchSecChange = 0,
     hideSecOverride = nil,
