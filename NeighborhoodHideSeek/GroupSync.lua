@@ -127,14 +127,16 @@ local function nhsGameplaySendChatIfOutOfCombat(text, channel)
   pcall(SendChatMessage, text, channel)
 end
 
-local function nhsBroadcastLeaderSync(message)
+local function nhsBroadcastLeaderSync(message, sendChat)
   if not IsInGroup() or not C.nhsIsRoundLeader() or not message or message == "" then
     return
   end
   if #message > 255 then
     return
   end
-  nhsGameplaySendChatIfOutOfCombat(message, nhsGroupSyncChannel())
+  if sendChat ~= false then
+    nhsGameplaySendChatIfOutOfCombat(message, nhsGroupSyncChannel())
+  end
   nhsSendAddonSyncPayload(message)
 end
 
@@ -152,7 +154,7 @@ local function nhsBroadcastRoundStart(keyStr, chatMsg)
   nhsGameplaySendChatIfOutOfCombat(msg, nhsGroupSyncChannel())
 end
 
-local function nhsBroadcastHouseLocked(display)
+local function nhsBroadcastHouseLocked(display, sendChat)
   if type(display) ~= "string" or display == "" then
     return
   end
@@ -161,7 +163,7 @@ local function nhsBroadcastHouseLocked(display)
   if #msg > 250 then
     msg = NHS_MSG_HOUSE .. safe:sub(1, math.max(1, 250 - #NHS_MSG_HOUSE - 1)) .. "…"
   end
-  nhsBroadcastLeaderSync(msg)
+  nhsBroadcastLeaderSync(msg, sendChat)
 end
 
 -- After [NHS] House: … — waypoint link in chat for players (when out of combat) + [NHS] coords on addon for sync.
@@ -343,6 +345,9 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
   if NHS.SyncToyAndSeekMode then
     NHS.SyncToyAndSeekMode()
   end
+  if NHS.TryLeaderAutoReveal then
+    NHS.TryLeaderAutoReveal()
+  end
   C.nhsPersistGameSessionToSaved()
   return true
 end
@@ -406,6 +411,9 @@ local function nhsApplyHiderReady(senderName, text)
   if senderKey == "" then return true end
   if not C.nhsRosterIdentityEqual or not C.nhsRosterIdentityEqual(senderKey, readyKey) then
     return true
+  end
+  if C.nhsCanonicalGroupSortKey then
+    readyKey = C.nhsCanonicalGroupSortKey(readyKey)
   end
   C.State.hiderReadySet[readyKey] = true
   if NHS.RefreshGameSessionUi then
@@ -475,7 +483,11 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
           C.State.remoteSeekerKeys[#C.State.remoteSeekerKeys + 1] = k
         end
         C.State.phase = Phase.PENDING
-        C.State.gameSeekerHistory[#C.State.gameSeekerHistory + 1] = Ambiguate(firstNew, "short")
+        local seekerDisplayNames = {}
+        for _, k in ipairs(keys) do
+          seekerDisplayNames[#seekerDisplayNames + 1] = Ambiguate(k, "short")
+        end
+        C.State.gameSeekerHistory[#C.State.gameSeekerHistory + 1] = table.concat(seekerDisplayNames, ", ")
       end
     end
   elseif text:match("^%[NHS%]%s*Game mode:%s*.+") then
@@ -508,6 +520,7 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     if housePart then
       C.State.remoteSessionActive = true
       C.State.phase = Phase.PICK_GAME_MODE
+      C.State.remoteGameMode = nil
       local disp = housePart:match("^%s*(.-)%s*$") or housePart
       C.State.remoteHouseDisplay = disp
       if C.State.gameHouseHistory[#C.State.gameHouseHistory] ~= disp then
@@ -683,8 +696,11 @@ local function nhsLeaderBroadcastGameplayCatchUpSync()
       )
     end
     if C.State.gameMode and NHS.IsValidGameMode and NHS.IsValidGameMode(C.State.gameMode) then
-      nhsBroadcastLeaderGameMode(C.State.gameMode)
-      mark()
+      local addonMsg = NHS_MSG_GAME_MODE .. C.State.gameMode
+      if #addonMsg <= 255 then
+        nhsSendAddonSyncPayload(addonMsg)
+        mark()
+      end
     end
   elseif IsRoundPhase(gp) then
     if C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "" and C.State.gameLockedHouseKey then
@@ -696,6 +712,14 @@ local function nhsLeaderBroadcastGameplayCatchUpSync()
         C.State.gameLockedHouseDisplay,
         C.State.gameLockedHouseKey
       )
+    end
+    -- Game mode must arrive before Round Start so the follower's phase transitions correctly.
+    if C.State.gameMode and NHS.IsValidGameMode and NHS.IsValidGameMode(C.State.gameMode) then
+      local addonMsg = NHS_MSG_GAME_MODE .. C.State.gameMode
+      if #addonMsg <= 255 then
+        nhsSendAddonSyncPayload(addonMsg)
+        mark()
+      end
     end
     local keyParts = {}
     for _, k in ipairs(C.State.gameLockedSeekerKeys) do

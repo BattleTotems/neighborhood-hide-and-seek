@@ -127,6 +127,11 @@ local function nhsTASTestBuildPanel()
     { label = "/Chicken",        fn = T.Chicken         },
     { label = "World Map",       fn = T.WorldMap        },
     { label = "Screen Blind",    fn = T.Blind           },
+    { label = "Achievements",    fn = T.Achievements    },
+    { label = "Open Chat",       fn = T.OpenChat        },
+    { label = "Open Bags",       fn = T.OpenBags        },
+    { label = "Toy Invite",      fn = T.ToyInvite       },
+    { label = "Growing Btn",     fn = T.GrowingButton   },
   }, yOff)
 
   -- ── Art Popups section ───────────────────────────────────────────────────

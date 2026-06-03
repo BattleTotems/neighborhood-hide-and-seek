@@ -328,6 +328,7 @@ local function nhsPersistGameSessionToSaved()
       houseHistory = houseHist,
       candidateKeys = candidateKeySnap,
       lockedKeys = lockedKeySnap,
+      lockedHiderKey = State.gameLockedHiderKey,
       seekerHistory = hist,
       rotationKeys = rotKeys,
       foundOrder = foundSnap,
@@ -541,6 +542,7 @@ local function nhsHydrateGameSessionFromSaved()
   for _, k in ipairs(s.rotationKeys or {}) do
     State.gameRotationUsed[k] = true
   end
+  State.gameLockedHiderKey = (type(s.lockedHiderKey) == "string" and s.lockedHiderKey ~= "") and s.lockedHiderKey or nil
   nhsRestoreFoundFromSnapshot(s.foundOrder)
   nhsRestorePastRoundsFromSave(s.pastRounds)
   NHS.SessionHudUpdate()
@@ -566,6 +568,7 @@ local function nhsResetGameSession()
   State.remoteHouseDisplay = nil
   wipe(State.gameCandidateKeys)
   wipe(State.gameLockedSeekerKeys)
+  State.gameLockedHiderKey = nil
   wipe(State.gameSeekerHistory)
   wipe(State.gameRotationUsed)
   wipe(State.remoteSeekerKeys)
@@ -849,7 +852,7 @@ local function nhsAppendPastRoundSnapshotIfActiveRound()
   if not NHS.SessionHudIsActive() then
     return
   end
-  if not IsRoundPhase(State.phase) then
+  if not IsRoundPhase(State.phase) or State.phase == Phase.PENDING then
     return
   end
   if not State.gameSessionActive and not State.remoteSessionActive then

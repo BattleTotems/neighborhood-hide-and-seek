@@ -2,6 +2,23 @@
 
 All notable changes to Neighborhood Hide and Seek are documented in this file.
 
+## [1.2.5]
+
+### Added
+- Back button during game setup
+- Automatically end the searching phase if the seeker finds everyone
+- Added more hindrances in Toying around (11 -> 18)
+
+### Changed
+- Removed a prison toy from Toying Around that would not allow the seeker to select the hider
+- Updated logic on saving to the previous seeker, house, and rounds lists to be more consistent and reliable
+
+### Fixed
+- Fixed an issue for cross server players from seeing other players as marked ready during hiding
+- Cleared the session HUD on login when there is no active game session or not in a group
+- Group sync button now syncs game mode as well
+
+
 ## [1.2.4]
 
 ### Added

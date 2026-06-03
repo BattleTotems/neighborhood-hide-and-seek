@@ -61,7 +61,6 @@ local TOY_LIST = {
   { id = 127864, name = "Personal Spotlight" },
   { id = 225910, name = "Pileus Delight" },
   { id = 108739, name = "Pretty Draenor Pearl" },
-  { id = 200198, name = "Primalist Prison" },
   { id = 119215, name = "Robo-Gnomebulator" },
   { id = 141649, name = "Set of Matches" },
   { id = 147843, name = "Sira's Extra Cloak" },
@@ -86,7 +85,7 @@ local SEEKER_GLOBAL_CD   = 5    -- seconds between hindrance effects on seeker
 local btnCooldownEnd        = 0      -- GetTime() when hider button is next usable
 local nhsTASHindranceQueue  = 0      -- pending seeker hindrances waiting to fire
 local nhsTASQueueDraining   = false  -- true while the drain timer chain is active
-local nhsTASHindranceHistory = {}  -- last 2 hindrance picks; avoids immediate repeats
+local nhsTASHindranceHistory = {}  -- last 4 hindrance picks; avoids recent repeats
 local buffBarHidden  = false
 
 -- ─── Role predicates ──────────────────────────────────────────────────────────
@@ -265,6 +264,153 @@ end
 -- Hindrance: Force world map open.
 local function nhsTASHindranceWorldMap()
   if not InCombatLockdown() then pcall(ToggleWorldMap) end
+end
+
+-- Hindrance: Force achievement frame open.
+local function nhsTASHindranceAchievements()
+  if not InCombatLockdown() then pcall(ToggleAchievementFrame) end
+end
+
+-- Hindrance: Open the chat input box — any keystroke the seeker presses types into chat.
+local function nhsTASHindranceOpenChat()
+  if not InCombatLockdown() then
+    pcall(ChatFrame_OpenChat, "", DEFAULT_CHAT_FRAME)
+  end
+end
+
+-- Hindrance: Open all bags.
+local function nhsTASHindranceOpenBags()
+  if not InCombatLockdown() then pcall(OpenAllBags) end
+end
+
+-- Hindrance: "Want to join in on the fun?" — offers the seeker a toy to use.
+-- Uses the same toy-pick logic as the hider button but does NOT broadcast a strike.
+-- Stays up 20 s or until the button is clicked.
+local function nhsTASHindranceToyInvite()
+  if InCombatLockdown() then return end
+  local toy = nhsTASPickToy()
+  if not toy then return end  -- seeker owns no compatible toys; skip silently
+
+  pcall(PlaySoundFile, 641976, "Dialog")
+
+  local sh = GetScreenHeight()
+
+  local root = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+  root:SetSize(340, 130)
+  root:SetPoint("CENTER", UIParent, "CENTER", 0, sh * 0.20)
+  root:SetFrameStrata("FULLSCREEN_DIALOG")
+  root:SetFrameLevel(96)
+  root:SetBackdrop({
+    bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true, tileSize = 32, edgeSize = 16,
+    insets = { left = 6, right = 6, top = 6, bottom = 6 },
+  })
+  root:SetBackdropColor(0, 0, 0, 0.88)
+  root:Show()
+
+  local lbl = root:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  lbl:SetPoint("TOP", root, "TOP", 0, -18)
+  lbl:SetText("|cffffff00Want to join in on the fun?|r")
+  lbl:Show()
+
+  local btn = CreateFrame("Button", nil, root,
+      "SecureActionButtonTemplate,UIPanelButtonTemplate")
+  btn:SetSize(220, 44)
+  btn:SetPoint("BOTTOM", root, "BOTTOM", 0, 18)
+  btn:SetText("Use Toy!")
+  btn:SetAttribute("type", "macro")
+  btn:SetAttribute("macrotext", "/use item:" .. toy.id)
+  btn:RegisterForClicks("AnyDown", "AnyUp")
+  btn:SetScript("PostClick", function(self, button, down)
+    if down then return end
+    root:Hide()
+  end)
+  btn:Show()
+
+  -- Gentle vertical wiggle on the popup frame
+  local wiggleT = 0
+  local baseY   = sh * 0.20
+  local wiggler = CreateFrame("Frame", nil, root)
+  wiggler:SetScript("OnUpdate", function(self, dt)
+    wiggleT = wiggleT + dt
+    local off = math.sin(wiggleT * 2.0) * 6
+    root:ClearAllPoints()
+    root:SetPoint("CENTER", UIParent, "CENTER", 0, baseY + off)
+  end)
+
+  C_Timer.After(20.0, function()
+    if root:IsShown() then
+      UIFrameFadeOut(root, 0.5, 1, 0)
+      C_Timer.After(0.6, function() root:Hide() end)
+    end
+  end)
+end
+
+-- Hindrance: Growing button — must be clicked 10 times to dismiss.
+-- Each press resets to base size and jumps to a new random position.
+local function nhsTASHindranceGrowingButton()
+  local PRESSES   = 10
+  local BASE_W    = 240
+  local BASE_H    = 64
+  local GROW_RATE = 0.04   -- fractional scale increase per second
+  local MAX_SCALE = 2.5
+
+  local sw = GetScreenWidth()
+  local sh = GetScreenHeight()
+
+  -- Random center position that keeps the BASE-size button fully on screen.
+  local function randomPos()
+    local margin = 30
+    local minX = math.floor(BASE_W / 2) + margin
+    local maxX = math.floor(sw - BASE_W / 2) - margin
+    local minY = math.floor(BASE_H / 2) + margin
+    local maxY = math.floor(sh - BASE_H / 2) - margin
+    return math.random(minX, maxX), math.random(minY, maxY)
+  end
+
+  local root = CreateFrame("Frame", nil, UIParent)
+  root:SetAllPoints(UIParent)
+  root:SetFrameStrata("FULLSCREEN_DIALOG")
+  root:SetFrameLevel(98)
+  root:Show()
+
+  local presses     = PRESSES
+  local growElapsed = 0
+
+  local btn = CreateFrame("Button", nil, root, "UIPanelButtonTemplate")
+  btn:SetSize(BASE_W, BASE_H)
+  btn:GetFontString():SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
+  local bx, by = randomPos()
+  btn:SetPoint("CENTER", root, "BOTTOMLEFT", bx, by)
+  btn:Show()
+
+  local function refreshText()
+    btn:SetText(string.format("Press to close (%d)", presses))
+  end
+  refreshText()
+
+  btn:SetScript("OnClick", function(self)
+    presses = presses - 1
+    if presses <= 0 then
+      root:Hide()
+      return
+    end
+    growElapsed = 0
+    btn:SetSize(BASE_W, BASE_H)
+    local nx, ny = randomPos()
+    btn:ClearAllPoints()
+    btn:SetPoint("CENTER", root, "BOTTOMLEFT", nx, ny)
+    refreshText()
+  end)
+
+  -- Grow the button each frame until capped
+  local updater = CreateFrame("Frame", nil, root)
+  updater:SetScript("OnUpdate", function(self, dt)
+    growElapsed = growElapsed + dt
+    local scale = math.min(1 + growElapsed * GROW_RATE, MAX_SCALE)
+    btn:SetSize(BASE_W * scale, BASE_H * scale)
+  end)
 end
 
 -- Hindrance: Screen blind (white flash in and out).
@@ -715,18 +861,242 @@ local function nhsTASPopupThunderfury()
 end
 
 
+-- ─── Class quiz data ──────────────────────────────────────────────────────────
+local CLASS_ICON_PATH = {
+  WARRIOR     = "Interface\\Icons\\ClassIcon_Warrior",
+  PALADIN     = "Interface\\Icons\\ClassIcon_Paladin",
+  HUNTER      = "Interface\\Icons\\ClassIcon_Hunter",
+  ROGUE       = "Interface\\Icons\\ClassIcon_Rogue",
+  PRIEST      = "Interface\\Icons\\ClassIcon_Priest",
+  SHAMAN      = "Interface\\Icons\\ClassIcon_Shaman",
+  MAGE        = "Interface\\Icons\\ClassIcon_Mage",
+  WARLOCK     = "Interface\\Icons\\ClassIcon_Warlock",
+  DRUID       = "Interface\\Icons\\ClassIcon_Druid",
+  DEATHKNIGHT = "Interface\\Icons\\ClassIcon_DeathKnight",
+  MONK        = "Interface\\Icons\\ClassIcon_Monk",
+  DEMONHUNTER = "Interface\\Icons\\ClassIcon_DemonHunter",
+  EVOKER      = "Interface\\Icons\\ClassIcon_Evoker",
+}
+
+-- Three iconic spells per class; spell IDs used with GetSpellTexture to fetch art.
+local CLASS_QUIZ_DATA = {
+  { name = "Warrior",      tag = "WARRIOR",     spells = {100,    6673,   12294}  },  -- Charge, Battle Shout, Mortal Strike
+  { name = "Paladin",      tag = "PALADIN",      spells = {642,    633,    20271}  },  -- Divine Shield, Lay on Hands, Judgment
+  { name = "Hunter",       tag = "HUNTER",       spells = {19434,  2643,   5384}   },  -- Aimed Shot, Multi-Shot, Feign Death
+  { name = "Rogue",        tag = "ROGUE",        spells = {1784,   53,     2094}   },  -- Stealth, Backstab, Blind
+  { name = "Priest",       tag = "PRIEST",       spells = {2061,   589,    605}    },  -- Flash Heal, SW:Pain, Mind Control
+  { name = "Shaman",       tag = "SHAMAN",       spells = {188443, 51505,  8042}   },  -- Chain Lightning, Lava Burst, Earth Shock
+  { name = "Mage",         tag = "MAGE",         spells = {133,    118,    1953}   },  -- Fireball, Polymorph, Blink
+  { name = "Warlock",      tag = "WARLOCK",      spells = {172,    686,    5740}   },  -- Corruption, Shadow Bolt, Rain of Fire
+  { name = "Druid",        tag = "DRUID",        spells = {8921,   768,    774}    },  -- Moonfire, Cat Form, Rejuvenation
+  { name = "Death Knight", tag = "DEATHKNIGHT",  spells = {49576,  42650,  49998}  },  -- Death Grip, Army of the Dead, Death Strike
+  { name = "Monk",         tag = "MONK",         spells = {100780, 115057, 115080} },  -- Tiger's Palm, Flying Serpent Kick, Touch of Death
+  { name = "Demon Hunter", tag = "DEMONHUNTER",  spells = {191427, 195072, 188499} },  -- Metamorphosis, Fel Rush, Blade Dance
+  { name = "Evoker",       tag = "EVOKER",       spells = {375087, 356995, 355913} },  -- Dragonrage, Disintegrate, Emerald Blossom
+}
+
+-- Shared typeout: reveals str character-by-character into a FontString.
+local function nhsTASTypeOut(str, target, idx, onDone)
+  idx = idx or 1
+  if idx > #str then if onDone then onDone() end; return end
+  target:SetText(str:sub(1, idx))
+  C_Timer.After(0.055, function() nhsTASTypeOut(str, target, idx + 1, onDone) end)
+end
+
+-- Popup 6 — Class Quiz
+local function nhsTASPopupClassQuiz()
+  local root = CreateFrame("Frame", nil, UIParent)
+  root:SetAllPoints(UIParent)
+  root:SetFrameStrata("FULLSCREEN_DIALOG")
+  root:SetFrameLevel(110)
+  root:Show()
+
+  local sw  = GetScreenWidth()
+  local sh  = GetScreenHeight()
+  local cX  = sw * 0.5
+  local cY  = sh * 0.5
+
+  local cls = CLASS_QUIZ_DATA[math.random(#CLASS_QUIZ_DATA)]
+
+  -- Triangle layout: icon 1 at top-center, icons 2+3 at bottom-left/right.
+  -- The centroid of this triangle lands near (cX, cY+60), where the text sits.
+  -- The class-icon reveal below the triangle completes a 4-point diamond.
+  local ICON_SIZE = 108
+  local R_HORIZ   = 165  -- horizontal spread for the two bottom icons
+  local R_TOP     = 200  -- height of top icon above cY
+
+  local iconData = {
+    { cx = cX,           cy = cY + R_TOP, si = 1, phase = 0                 },
+    { cx = cX - R_HORIZ, cy = cY - 10,   si = 2, phase = math.pi * 2 / 3  },
+    { cx = cX + R_HORIZ, cy = cY - 10,   si = 3, phase = math.pi * 4 / 3  },
+  }
+
+  for _, ic in ipairs(iconData) do
+    local frm = CreateFrame("Frame", nil, root)
+    frm:SetSize(ICON_SIZE, ICON_SIZE)
+    frm:SetPoint("CENTER", root, "BOTTOMLEFT", ic.cx, ic.cy)
+    local tex = frm:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints()
+    tex:SetTexture(C_Spell.GetSpellTexture(cls.spells[ic.si])
+        or "Interface\\Icons\\INV_Misc_QuestionMark")
+    frm:Show()
+    ic.frame = frm
+  end
+
+  -- Gentle vertical wiggle — 120° phase offset keeps each icon out of sync
+  local wiggleT = 0
+  local wiggler = CreateFrame("Frame", nil, root)
+  wiggler:SetScript("OnUpdate", function(self, dt)
+    wiggleT = wiggleT + dt
+    for _, ic in ipairs(iconData) do
+      local off = math.sin(wiggleT * 2.0 + ic.phase) * 5
+      ic.frame:ClearAllPoints()
+      ic.frame:SetPoint("CENTER", root, "BOTTOMLEFT", ic.cx, ic.cy + off)
+    end
+  end)
+
+  -- Question — sits above the triangle centroid (~cY+60)
+  local qLbl = root:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+  qLbl:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY + 95)
+  qLbl:SetText("|cffffff00What class uses these?|r")
+  qLbl:Show()
+
+  -- Answer typed out below the question 2.5 s later
+  local ansLbl = root:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+  ansLbl:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY + 65)
+  ansLbl:SetText("")
+  if RAID_CLASS_COLORS and RAID_CLASS_COLORS[cls.tag] then
+    local cc = RAID_CLASS_COLORS[cls.tag]
+    ansLbl:SetTextColor(cc.r, cc.g, cc.b)
+  end
+  ansLbl:Show()
+
+  -- Class icon — diamond bottom point, below the two side icons; fades in with the reveal
+  local revealFrm = CreateFrame("Frame", nil, root)
+  revealFrm:SetSize(ICON_SIZE, ICON_SIZE)
+  revealFrm:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY - 140)
+  local revealTex = revealFrm:CreateTexture(nil, "ARTWORK")
+  revealTex:SetAllPoints()
+  revealTex:SetTexture(CLASS_ICON_PATH[cls.tag] or "Interface\\Icons\\INV_Misc_QuestionMark")
+  revealFrm:SetAlpha(0)
+  revealFrm:Show()
+
+  C_Timer.After(2.5, function()
+    pcall(PlaySound, SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_OPEN or 857, "Master")
+    UIFrameFadeIn(revealFrm, 0.5, 0, 1)
+    nhsTASTypeOut(cls.name, ansLbl)
+  end)
+
+  nhsTASPopupClose(root, 7.0)
+end
+
+-- Popup 7 — Hide & Seek Tier List
+local function nhsTASPopupTierList()
+  local root = CreateFrame("Frame", nil, UIParent)
+  root:SetAllPoints(UIParent)
+  root:SetFrameStrata("FULLSCREEN_DIALOG")
+  root:SetFrameLevel(110)
+  root:Show()
+
+  local sw = GetScreenWidth()
+  local sh = GetScreenHeight()
+  local cX = sw * 0.5
+
+  pcall(PlaySound, 6913, "Master")
+
+  -- Seeker is "player"; party1–N are the hiders
+  local seekerClass, seekerTag = UnitClass("player")
+  local hiders = {}
+  for i = 1, GetNumGroupMembers() - 1 do
+    local localName, tag = UnitClass("party" .. i)
+    if tag then hiders[#hiders + 1] = { name = localName, tag = tag } end
+  end
+  for i = #hiders, 2, -1 do    -- shuffle so tier assignment feels random
+    local j = math.random(i)
+    hiders[i], hiders[j] = hiders[j], hiders[i]
+  end
+
+  -- Round-robin hiders across S / A / B; C is always empty (intentional troll row)
+  local slots  = { S = {}, A = {}, B = {}, C = {}, D = { { name = seekerClass, tag = seekerTag } } }
+  local cycle  = { "S", "A", "B" }
+  for i, cls in ipairs(hiders) do
+    local t = cycle[((i - 1) % 3) + 1]
+    slots[t][#slots[t] + 1] = cls
+  end
+
+  local title = root:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+  title:SetPoint("CENTER", root, "BOTTOMLEFT", cX, sh * 0.71)
+  title:SetText("|cffffff00Hide & Seek Tier List|r")
+  title:Show()
+
+  local ROW_H   = 64
+  local ICON_SZ = 48
+  local LABEL_W = 52
+  local FRAME_W = 560
+  local ROW_GAP = 6
+  local frameX  = cX - FRAME_W / 2
+  local startY  = sh * 0.62
+
+  local tierDefs = {
+    { key = "S", lc = {1,   0.84, 0,   0.95}, bc = {0.35, 0.30, 0,    0.85} },
+    { key = "A", lc = {0.2, 0.9,  0.2, 0.95}, bc = {0.07, 0.30, 0.07, 0.85} },
+    { key = "B", lc = {0.2, 0.5,  1,   0.95}, bc = {0.07, 0.18, 0.40, 0.85} },
+    { key = "C", lc = {0.9, 0.50, 0.1, 0.95}, bc = {0.36, 0.18, 0.04, 0.85} },
+    { key = "D", lc = {0.6, 0.6,  0.6, 0.95}, bc = {0.22, 0.05, 0.05, 0.85} },
+  }
+
+  for rowIdx, td in ipairs(tierDefs) do
+    local rowY   = startY - (rowIdx - 1) * (ROW_H + ROW_GAP)
+    local lc, bc = td.lc, td.bc
+    local classes = slots[td.key] or {}
+
+    local lbg = root:CreateTexture(nil, "BACKGROUND")
+    lbg:SetSize(LABEL_W, ROW_H)
+    lbg:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", frameX, rowY)
+    lbg:SetColorTexture(lc[1], lc[2], lc[3], lc[4])
+
+    local ltxt = root:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    ltxt:SetPoint("CENTER", root, "BOTTOMLEFT", frameX + LABEL_W / 2, rowY + ROW_H / 2)
+    ltxt:SetText(td.key)
+    ltxt:SetTextColor(0, 0, 0, 1)
+    ltxt:Show()
+
+    local cbg = root:CreateTexture(nil, "BACKGROUND")
+    cbg:SetSize(FRAME_W - LABEL_W, ROW_H)
+    cbg:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", frameX + LABEL_W, rowY)
+    cbg:SetColorTexture(bc[1], bc[2], bc[3], bc[4])
+
+    for ci, cls in ipairs(classes) do
+      local entryX = frameX + LABEL_W + 8 + (ci - 1) * (ICON_SZ + 6)
+      local entryY = rowY + (ROW_H - ICON_SZ) / 2
+      local iconFrm = CreateFrame("Frame", nil, root)
+      iconFrm:SetSize(ICON_SZ, ICON_SZ)
+      iconFrm:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", entryX, entryY)
+      local iconTex = iconFrm:CreateTexture(nil, "ARTWORK")
+      iconTex:SetAllPoints()
+      iconTex:SetTexture(CLASS_ICON_PATH[cls.tag] or "Interface\\Icons\\INV_Misc_QuestionMark")
+      iconFrm:Show()
+    end
+  end
+
+  nhsTASPopupClose(root, 6.0)
+end
+
 -- ─── Hindrance dispatcher ─────────────────────────────────────────────────────
--- 11 options: 6 effect hindrances + 5 art popups (each popup is its own slot).
+-- 18 options: 11 effect hindrances + 7 art popups (each popup is its own slot).
 -- History tracks the last 2 picks so no hindrance repeats twice in a row.
 local function nhsTASFireHindrance()
-  -- Avoid repeating either of the last 2 hindrances. With 11 options and 2
-  -- excluded there are always at least 9 valid choices, so this loop exits fast.
+  -- Avoid repeating any of the last 4 hindrances. With 18 options and 4
+  -- excluded there are always at least 14 valid choices, so this loop exits fast.
   local pick
   repeat
-    pick = math.random(11)
+    pick = math.random(18)
   until pick ~= nhsTASHindranceHistory[1] and pick ~= nhsTASHindranceHistory[2]
+     and pick ~= nhsTASHindranceHistory[3] and pick ~= nhsTASHindranceHistory[4]
   nhsTASHindranceHistory[1] = nhsTASHindranceHistory[2]
-  nhsTASHindranceHistory[2] = pick
+  nhsTASHindranceHistory[2] = nhsTASHindranceHistory[3]
+  nhsTASHindranceHistory[3] = nhsTASHindranceHistory[4]
+  nhsTASHindranceHistory[4] = pick
 
   if     pick == 1  then nhsTASHindranceLowHealth()
   elseif pick == 2  then nhsTASHindranceColorTint()
@@ -734,11 +1104,18 @@ local function nhsTASFireHindrance()
   elseif pick == 4  then nhsTASHindranceChicken()
   elseif pick == 5  then nhsTASHindranceWorldMap()
   elseif pick == 6  then nhsTASHindranceBlind()
-  elseif pick == 7  then nhsTASPopupTurtle()
-  elseif pick == 8  then nhsTASPopupLeeroy()
-  elseif pick == 9  then nhsTASPopupXalatath()
-  elseif pick == 10 then nhsTASPopupMurlocs()
-  elseif pick == 11 then nhsTASPopupThunderfury()
+  elseif pick == 7  then nhsTASHindranceAchievements()
+  elseif pick == 8  then nhsTASHindranceOpenChat()
+  elseif pick == 9  then nhsTASHindranceOpenBags()
+  elseif pick == 10 then nhsTASHindranceToyInvite()
+  elseif pick == 11 then nhsTASHindranceGrowingButton()
+  elseif pick == 12 then nhsTASPopupTurtle()
+  elseif pick == 13 then nhsTASPopupLeeroy()
+  elseif pick == 14 then nhsTASPopupXalatath()
+  elseif pick == 15 then nhsTASPopupMurlocs()
+  elseif pick == 16 then nhsTASPopupThunderfury()
+  elseif pick == 17 then nhsTASPopupClassQuiz()
+  elseif pick == 18 then nhsTASPopupTierList()
   end
 end
 
@@ -926,15 +1303,22 @@ NHS.ToyAndSeek = {
     Chicken         = nhsTASHindranceChicken,
     WorldMap        = nhsTASHindranceWorldMap,
     Blind           = nhsTASHindranceBlind,
-    -- Art popups (indexed 1–5)
+    Achievements    = nhsTASHindranceAchievements,
+    OpenChat        = nhsTASHindranceOpenChat,
+    OpenBags        = nhsTASHindranceOpenBags,
+    ToyInvite       = nhsTASHindranceToyInvite,
+    GrowingButton   = nhsTASHindranceGrowingButton,
+    -- Art popups (indexed 1–7)
     Popups = {
       nhsTASPopupTurtle,
       nhsTASPopupLeeroy,
       nhsTASPopupXalatath,
       nhsTASPopupMurlocs,
       nhsTASPopupThunderfury,
+      nhsTASPopupClassQuiz,
+      nhsTASPopupTierList,
     },
-    PopupLabels = { "Turtle", "Leeroy", "Xal'atath", "Murlocs", "Thunderfury" },
+    PopupLabels = { "Turtle", "Leeroy", "Xal'atath", "Murlocs", "Thunderfury", "ClassQuiz", "TierList" },
   },
 }
 

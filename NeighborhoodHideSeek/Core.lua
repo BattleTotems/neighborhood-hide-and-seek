@@ -80,6 +80,7 @@ local State = {
   gameHouseHistory = {},
   gameCandidateKeys = {},    -- list of seeker candidates being built (not yet confirmed)
   gameLockedSeekerKeys = {}, -- confirmed seeker keys for the current round
+  gameLockedHiderKey = nil,  -- hider mode only: key of the confirmed hider (set on round start, committed to rotation on HIDING)
   gameSeekerHistory = {},
   gameRotationUsed = {},
   -- Follower: last house line from leader addon sync (same text may appear in party/raid when out of combat).
@@ -157,8 +158,14 @@ local function nhsSyncGroupLeaveCleanup()
     end
   end
 
-  if not inGroup and State.remoteSessionActive and nhsIsRoundPhase(State.phase) and NHS.GroupSync and NHS.GroupSync.ClearRemoteRound then
-    NHS.GroupSync.ClearRemoteRound()
+  if not inGroup and State.remoteSessionActive then
+    if NHS.GroupSync and NHS.GroupSync.ClearRemoteRound then
+      NHS.GroupSync.ClearRemoteRound()
+    end
+    State.remoteSessionActive = false
+    State.remoteGameMode = nil
+    State.remoteHouseDisplay = nil
+    State.phase = Phase.NONE
   end
 
   wasInGroup = inGroup

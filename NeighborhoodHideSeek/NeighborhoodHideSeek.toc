@@ -1,7 +1,7 @@
 ## Interface: 120005
 ## Title: Neighborhood Hide & Seek
 ## Notes: Guild housing hide-and-seek: seeker mode (nameplates), visitable houses, random pick, waypoint/share pin, found list.
-## Version: 1.2.4
+## Version: 1.2.5
 ## SavedVariables: NHSV
 
 Core.lua
