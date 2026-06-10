@@ -60,6 +60,10 @@ local function ensureSavedVars()
   if NHSV.suppressSeekerModeDialog == nil then
     NHSV.suppressSeekerModeDialog = false
   end
+  -- Per-mode default: true (or nil) = include in Random pool, false = exclude by default.
+  if type(NHSV.gameModeDefaults) ~= "table" then
+    NHSV.gameModeDefaults = {}
+  end
 end
 
 NHS.EnsureSavedVars = ensureSavedVars

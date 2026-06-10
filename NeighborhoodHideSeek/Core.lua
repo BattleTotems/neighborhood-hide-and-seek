@@ -74,6 +74,7 @@ local State = {
   gameHouseCandidateDisplay = nil,
   gameLockedHouseKey = nil,
   gameLockedHouseDisplay = nil,
+  gameLastRoundHouseKey = nil,  -- previous round's locked house key; used to detect subdivision/neighborhood changes
   gameLockedHouseLiveEntry = nil,
   gameLockedHouseLiveIndex = nil,
   gameHouseRotationUsed = {},
@@ -101,6 +102,10 @@ local State = {
   searchPhaseDuration = nil,
   -- Hiders who clicked "I'm Hidden!" during the hiding phase (keys = Ambiguate(..., "none")).
   hiderReadySet = {},
+  -- Last 2 game modes played this session (most recent first); used to default their checkboxes off.
+  recentlyPlayedModes = {},
+  -- Hot Potato: key of the player who tagged the current seeker; they cannot be tagged back.
+  hotPotatoTaggedBy = nil,
 }
 
 NeighborhoodHideSeek.State = State
@@ -109,6 +114,7 @@ local function clearFound()
   wipe(State.foundOrder)
   wipe(State.foundSet)
   wipe(State.hiderReadySet)
+  State.hotPotatoTaggedBy = nil
 end
 
 -- --- Game rounds (party/raid leader) ----------------------------------------
@@ -231,6 +237,15 @@ loader:SetScript("OnEvent", function(_, event, name)
     end
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PARTY_LEADER_CHANGED" then
     nhsSyncGroupLeaveCleanup()
+    if NeighborhoodHideSeek.LeaderHiderModeAddLateJoiners then
+      NeighborhoodHideSeek.LeaderHiderModeAddLateJoiners()
+    end
+    -- Re-entering follower fires PLAYER_ENTERING_WORLD first (re-registering their prefix),
+    -- then the leader sees GROUP_ROSTER_UPDATE — so the rebroadcast arrives after the
+    -- follower is ready to receive it.
+    if NeighborhoodHideSeek.GroupSync and NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded then
+      NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded()
+    end
     if UI.RefreshAll then
       UI.RefreshAll()
     elseif UI.RefreshGameRounds then

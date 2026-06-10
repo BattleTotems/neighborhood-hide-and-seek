@@ -2,6 +2,33 @@
 
 All notable changes to Neighborhood Hide and Seek are documented in this file.
 
+## [1.3.0]
+
+### Added
+- New Game Mode: Sardines
+- New Game Mode: Hot Potato
+- Game mode checkboxes next to each mode button let you control which modes are included in the Random pool for each round
+- The last 2 game modes played this session are unchecked by default so Random picks something fresh
+- Game Modes info panel now has per-mode checkboxes to set your personal default inclusion preferences, saved between sessions
+- Addon version checker as an option and at the start of sessions so that you can know for sure people are running the same version
+- During revealing phase up to 8 hidden players will get raid markers to be more easily found
+
+### Changed
+- Now automatically clears the seekers current target when entering seeker mode, or going to hiding or searching phases
+- Previous rounds, houses, and seeker screens now live update as the data changes
+- Seeker mode should now handle hiding party/raid frames for some other popular addons with their own frames
+- Added additional callouts for when houses are not in the same neighborhood or subdivision as the previous house
+- Chosen One game mode now reduces the search time by 15 seconds per seeker
+- Overtime game mode search time values adjusted
+- Bloodhound targeting logic has been changed and updates more frequently
+
+### Fixed
+- Previous rounds now saves correctly even before the main view is opened
+- Fixed issue with some gameplay logic being tied to the game control view
+- Late player added during Chosen One are added to seekers
+- Fixed a desync issue with players enter/leaving houses during certain game phases
+
+
 ## [1.2.5]
 
 ### Added

@@ -88,6 +88,84 @@ local function markTargetFound(opts)
     return
   end
   local disp = UnitName("target") or Ambiguate(key, "short")
+
+  -- Sardines mode: seeker joins the sardine rather than marking the hider found.
+  local modeId = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
+  if modeId == "sardines" then
+    local hiderKey = State.gameLockedHiderKey
+    local isSardine = hiderKey and (
+      (NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(key, hiderKey)) or key == hiderKey
+    )
+    if not isSardine then
+      if not quiet then
+        print("|cffff8800[NHS]|r Target the sardine player to join them.")
+      end
+      return
+    end
+    local myKey = NHS.LocalPlayerSortKey()
+    if not myKey then return end
+    if State.foundSet[myKey] then return end
+    -- Broadcast before modifying state so the seeker check in the broadcast still passes.
+    if NHS.GroupSync and NHS.GroupSync.BroadcastSardineJoined then
+      NHS.GroupSync.BroadcastSardineJoined()
+    end
+    State.foundSet[myKey] = true
+    State.foundOrder[#State.foundOrder + 1] = myKey
+    for i = #State.gameLockedSeekerKeys, 1, -1 do
+      if NHS.GroupSortKeysEquivalent(State.gameLockedSeekerKeys[i], myKey) then
+        table.remove(State.gameLockedSeekerKeys, i)
+        break
+      end
+    end
+    if State.seekerMode and NHS.SetSeekerMode then NHS.SetSeekerMode(false) end
+    print(("|cff88ff88[NHS]|r Joined the sardine with %s!"):format(disp))
+    if NHS.TryLeaderAutoReveal then NHS.TryLeaderAutoReveal() end
+    if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+    if NHS.RefreshGameSessionUi then
+      NHS.RefreshGameSessionUi()
+    else
+      local UI = B.getUI()
+      if UI.RefreshFound then UI.RefreshFound() elseif NHS.SessionHudUpdate then NHS.SessionHudUpdate() end
+    end
+    NHS.PersistGameSessionToSaved()
+    return
+  end
+
+  -- Hot Potato mode: seeker and found hider swap roles.
+  if modeId == "hot_potato" then
+    local isNoTagback = State.hotPotatoTaggedBy and (
+      (NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(key, State.hotPotatoTaggedBy))
+      or key == State.hotPotatoTaggedBy
+    )
+    if isNoTagback then
+      if not quiet then
+        print("|cffff8800[NHS]|r No tagbacks! Find someone else.")
+      end
+      return
+    end
+    local myKey = NHS.LocalPlayerSortKey()
+    if not myKey then return end
+    -- Broadcast before wiping seekerKeys so the seeker check in the broadcast still passes.
+    if NHS.GroupSync and NHS.GroupSync.BroadcastHotPotatoSwap then
+      NHS.GroupSync.BroadcastHotPotatoSwap(key)
+    end
+    State.foundOrder[#State.foundOrder + 1] = myKey
+    wipe(State.gameLockedSeekerKeys)
+    State.gameLockedSeekerKeys[1] = key
+    State.hotPotatoTaggedBy = myKey
+    -- All players stay in seeker mode throughout Hot Potato; no transition needed here.
+    print(("|cff88ff88[NHS]|r Hot Potato! %s is now the seeker."):format(disp))
+    if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+    if NHS.RefreshGameSessionUi then
+      NHS.RefreshGameSessionUi()
+    else
+      local UI = B.getUI()
+      if UI.RefreshFound then UI.RefreshFound() elseif NHS.SessionHudUpdate then NHS.SessionHudUpdate() end
+    end
+    NHS.PersistGameSessionToSaved()
+    return
+  end
+
   State.foundSet[key] = true
   State.foundOrder[#State.foundOrder + 1] = key
   -- Conquer mode: add the found player to the seeker list so they can broadcast finds.

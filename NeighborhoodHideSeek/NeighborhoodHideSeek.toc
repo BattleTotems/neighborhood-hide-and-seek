@@ -9,6 +9,7 @@ SavedVarsDefaults.lua
 AboutCopy.lua
 Ui/ScrollUtil.lua
 Gameplay/SeekerMode.lua
+Gameplay/ThirdPartyFrames.lua
 Gameplay/RandomPickAnimation.lua
 Gameplay/GameSession.lua
 Gameplay/GameModes.lua
@@ -19,7 +20,9 @@ Gameplay/ToyAndSeekTest.lua
 Gameplay/SessionHud.lua
 GroupSync.lua
 Gameplay/MarkFound.lua
+Gameplay/RevealMarkers.lua
 Ui/PastSeekersFrame.lua
+Ui/VersionCheckFrame.lua
 Ui/SavedSizesFrame.lua
 Ui/GameplayPastHousesFrame.lua
 Ui/PastRoundsFrame.lua

@@ -26,6 +26,8 @@ local NHS_MSG_FOUND_PREFIX = "[NHS] Found: "
 local NHS_MSG_REVEALING = "[NHS] The Revealing Begins!"
 local NHS_MSG_NP_NEAREST = "[NHS] NP Nearest: "
 local NHS_MSG_HIDER_READY = "[NHS] Hider Ready: "
+local NHS_MSG_SARDINE_JOIN = "[NHS] Sardine: "
+local NHS_MSG_HP_SWAP = "[NHS] HP Swap: "
 
 -- Addon comm: same human-readable NHS line as payload (max 255 bytes).
 local NHS_ADDON_PREFIX = "NeighborhoodHS"
@@ -399,6 +401,31 @@ local function nhsBroadcastHiderReady()
 end
 NHS.BroadcastHiderReady = nhsBroadcastHiderReady
 
+-- Sardines mode: seeker broadcasts their own key when they find and join the sardine's hiding spot.
+local function nhsBroadcastSardineJoined()
+  if not IsInGroup() then return end
+  if not C.nhsLocalPlayerIsDesignatedSeeker or not C.nhsLocalPlayerIsDesignatedSeeker() then return end
+  local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+  if not myKey or myKey == "" then return end
+  local msg = NHS_MSG_SARDINE_JOIN .. myKey
+  if #msg > 255 then return end
+  nhsGameplaySendChatIfOutOfCombat(msg, nhsSeekerFoundSyncChannel())
+  nhsSendAddonSyncPayload(msg)
+end
+NHS.BroadcastSardineJoined = nhsBroadcastSardineJoined
+
+-- Hot Potato mode: current seeker broadcasts when they tag a hider (newSeekerKey becomes the seeker).
+-- MarkFound.lua validates seeker status before calling; no redundant check here.
+local function nhsBroadcastHotPotatoSwap(newSeekerKey)
+  if not IsInGroup() then return end
+  if type(newSeekerKey) ~= "string" or newSeekerKey == "" then return end
+  local msg = NHS_MSG_HP_SWAP .. newSeekerKey
+  if #msg > 255 then return end
+  nhsGameplaySendChatIfOutOfCombat(msg, nhsSeekerFoundSyncChannel())
+  nhsSendAddonSyncPayload(msg)
+end
+NHS.BroadcastHotPotatoSwap = nhsBroadcastHotPotatoSwap
+
 -- Returns true if this was an [NHS] Hider Ready: line (handled or ignored); false otherwise.
 local function nhsApplyHiderReady(senderName, text)
   local body = text:match("^%[NHS%]%s*Hider Ready:%s*(.+)%s*$")
@@ -421,6 +448,85 @@ local function nhsApplyHiderReady(senderName, text)
   elseif C.nhsSessionHudUpdate then
     C.nhsSessionHudUpdate()
   end
+  return true
+end
+
+-- Sardines: seeker joined the sardine's hiding spot.
+local function nhsApplySardineJoined(senderName, text)
+  local body = text:match("^%[NHS%] Sardine:%s*(.+)%s*$")
+  if not body then return false end
+  if C.State.phase ~= Phase.SEARCHING then return true end
+  if not C.nhsChatSenderIsDesignatedSeeker(senderName) then return true end
+  local joinedKey = Ambiguate((body:match("^%s*(.-)%s*$") or body), "none")
+  if not joinedKey or joinedKey == "" then return true end
+  if C.nhsCanonicalGroupSortKey then joinedKey = C.nhsCanonicalGroupSortKey(joinedKey) end
+  -- Dedup: MarkFound already applied this locally on the sender's client.
+  if C.State.foundSet[joinedKey] then
+    C.nhsPersistGameSessionToSaved()
+    return true
+  end
+  C.State.foundSet[joinedKey] = true
+  C.State.foundOrder[#C.State.foundOrder + 1] = joinedKey
+  -- Remove the joined seeker from the seeker list.
+  local targetList = C.State.gameSessionActive and C.State.gameLockedSeekerKeys
+    or (C.State.remoteSessionActive and C.State.remoteSeekerKeys)
+  if targetList then
+    for i = #targetList, 1, -1 do
+      local k = targetList[i]
+      if k == joinedKey or (C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(k, joinedKey)) then
+        table.remove(targetList, i)
+        break
+      end
+    end
+  end
+  -- The joining player exits seeker mode on their own client.
+  local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+  if myKey and C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, joinedKey) then
+    if C.State.seekerMode and NHS.SetSeekerMode then NHS.SetSeekerMode(false) end
+  end
+  if NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
+  elseif C.nhsSessionHudUpdate then
+    C.nhsSessionHudUpdate()
+  end
+  if NHS.TryLeaderAutoReveal then NHS.TryLeaderAutoReveal() end
+  if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+  C.nhsPersistGameSessionToSaved()
+  return true
+end
+
+-- Hot Potato: seeker tagged a hider, they swap roles.
+local function nhsApplyHotPotatoSwap(senderName, text)
+  local body = text:match("^%[NHS%] HP Swap:%s*(.+)%s*$")
+  if not body then return false end
+  if C.State.phase ~= Phase.SEARCHING then return true end
+  if not C.nhsChatSenderIsDesignatedSeeker(senderName) then return true end
+  local newSeekerKey = Ambiguate((body:match("^%s*(.-)%s*$") or body), "none")
+  if not newSeekerKey or newSeekerKey == "" then return true end
+  if C.nhsCanonicalGroupSortKey then newSeekerKey = C.nhsCanonicalGroupSortKey(newSeekerKey) end
+  local targetList = C.State.gameSessionActive and C.State.gameLockedSeekerKeys
+    or (C.State.remoteSessionActive and C.State.remoteSeekerKeys)
+  if not targetList or #targetList == 0 then return true end
+  local oldSeekerKey = targetList[1]
+  -- Dedup: MarkFound already applied this swap on the sender's client.
+  if C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(oldSeekerKey or "", newSeekerKey) then
+    return true
+  end
+  -- Record who passed the potato (the old seeker) in the round history.
+  C.State.foundOrder[#C.State.foundOrder + 1] = oldSeekerKey
+  -- Swap: wipe and set new seeker.
+  wipe(targetList)
+  targetList[1] = newSeekerKey
+  -- No-tagback: the new seeker cannot immediately tag back the old seeker.
+  C.State.hotPotatoTaggedBy = oldSeekerKey
+  -- All players stay in seeker mode throughout Hot Potato; no transitions needed here.
+  if NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
+  elseif C.nhsSessionHudUpdate then
+    C.nhsSessionHudUpdate()
+  end
+  if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+  C.nhsPersistGameSessionToSaved()
   return true
 end
 
@@ -525,6 +631,7 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       C.State.remoteHouseDisplay = disp
       if C.State.gameHouseHistory[#C.State.gameHouseHistory] ~= disp then
         C.State.gameHouseHistory[#C.State.gameHouseHistory + 1] = disp
+        if NHS.LiveRefreshIfOpen then NHS.LiveRefreshIfOpen("houses") end
       end
     end
   elseif text:match("^%[NHS%]%s*Round is over!%s*$") then
@@ -776,6 +883,8 @@ end
 
 NHS.GroupSync = {
   BroadcastSeekerFound = nhsBroadcastSeekerFound,
+  BroadcastSardineJoined = nhsBroadcastSardineJoined,
+  BroadcastHotPotatoSwap = nhsBroadcastHotPotatoSwap,
   ClearRemoteRound = nhsClearRemoteRoundSync,
   LeaderRebroadcastActiveRoundPhaseIfNeeded = nhsLeaderRebroadcastActiveRoundPhaseIfNeeded,
   LeaderBroadcastGameplayCatchUpSync = nhsLeaderBroadcastGameplayCatchUpSync,
@@ -855,6 +964,12 @@ local function nhsDispatchGroupNhsLine(senderName, text)
     end
     return
   end
+  if nhsApplySardineJoined(senderName, text) then
+    return
+  end
+  if nhsApplyHotPotatoSwap(senderName, text) then
+    return
+  end
   if nhsApplyFoundSyncFromChat(senderName, text) then
     return
   end
@@ -867,6 +982,8 @@ local function nhsDispatchGroupNhsLine(senderName, text)
   if C.nhsTASApplyStrike and C.nhsTASApplyStrike(senderName, text) then
     return
   end
+  if NHS.VersionCheck and NHS.VersionCheck.ApplyVersionQuery(senderName, text) then return end
+  if NHS.VersionCheck and NHS.VersionCheck.ApplyVersionReply(senderName, text) then return end
   nhsApplyGroupSyncFromLeader(senderName, text)
 end
 
@@ -898,7 +1015,16 @@ end
 
 local nhsSyncChatFrame = CreateFrame("Frame")
 nhsSyncChatFrame:RegisterEvent("CHAT_MSG_ADDON")
+nhsSyncChatFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 nhsSyncChatFrame:SetScript("OnEvent", function(_, event, ...)
+  if event == "PLAYER_ENTERING_WORLD" then
+    -- Re-register after zone transitions; housing zone boundaries can reset
+    -- server-side prefix registration, silently dropping all incoming addon messages.
+    if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+      C_ChatInfo.RegisterAddonMessagePrefix(NHS_ADDON_PREFIX)
+    end
+    return
+  end
   if event ~= "CHAT_MSG_ADDON" then
     return
   end

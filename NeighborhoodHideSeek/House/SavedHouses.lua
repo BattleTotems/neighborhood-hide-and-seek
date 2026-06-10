@@ -133,6 +133,34 @@ function S.BaseStableKeyFromPersistenceKey(persistenceKey)
   return persistenceKey
 end
 
+-- Returns (neighborhoodName, subdivisionName) parsed from a persistence key's tail.
+-- Either value may be nil when not encoded in the key.
+-- Used to detect neighborhood/subdivision changes between rounds for the group callout.
+function S.NeighborhoodAndSubFromKey(persistenceKey)
+  if type(persistenceKey) ~= "string" then
+    return nil, nil
+  end
+  local sep = persistenceKey:find(NHS_PERSIST_KEY_SEP, 1, true)
+  if not sep or sep >= #persistenceKey then
+    return nil, nil
+  end
+  local tail = persistenceKey:sub(sep + 1)
+  -- Strip the player component (\3...) if present.
+  local playerSep = tail:find(NHS_TAIL_PLAYER_SEP, 1, true)
+  if playerSep then
+    tail = tail:sub(1, playerSep - 1)
+  end
+  -- Split into neighborhood and subdivision at the pair separator (\2).
+  local pairSep = tail:find(NHS_TAIL_PAIR_SEP, 1, true)
+  if pairSep then
+    local hood = tail:sub(1, pairSep - 1)
+    local sub  = tail:sub(pairSep + 1)
+    return hood ~= "" and hood or nil, sub ~= "" and sub or nil
+  end
+  -- No pair separator: tail is the neighborhood name only.
+  return tail ~= "" and tail or nil, nil
+end
+
 local function trimmedNeighborhoodName()
   local hood = NHS.GetNeighborhoodDisplayName and NHS.GetNeighborhoodDisplayName() or nil
   if type(hood) ~= "string" then

@@ -111,6 +111,9 @@ seekerUiPoll:SetScript("OnUpdate", function(self, elapsed)
         fr:Hide()
       end
     end
+    if NHS.ThirdPartyFramesPollHide then
+      NHS.ThirdPartyFramesPollHide()
+    end
   end
   if NHSV.hideMinimapInSeeker then
     local mc = _G.MinimapCluster
@@ -128,6 +131,9 @@ end
 local function seekerUiSuppressStart()
   if seekerUiSuppressActive() then
     seekerUiPoll:Show()
+    if NHSV.hideGroupFramesInSeeker and NHS.ThirdPartyFramesOnHide then
+      NHS.ThirdPartyFramesOnHide()
+    end
   end
 end
 
@@ -138,6 +144,9 @@ local function seekerUiSuppressStop()
     if fr and fr.Show then
       pcall(fr.Show, fr)
     end
+  end
+  if NHS.ThirdPartyFramesOnShow then
+    NHS.ThirdPartyFramesOnShow()
   end
   local mc = _G.MinimapCluster
   if mc and mc.Show then
@@ -164,6 +173,9 @@ local function setSeekerMode(enabled)
     end
     hideAllNameplates()
     seekerUiSuppressStart()
+    if not InCombatLockdown() then
+      ClearTarget()
+    end
     if NHS.ShowSeekerModeEngagedDialog then
       NHS.ShowSeekerModeEngagedDialog()
     end
@@ -196,7 +208,7 @@ end
 -- Enter seeker mode: with no session/synced round, allow (preview nameplate/UI options). During a
 -- session, only the designated seeker may enter, and only in Hiding or Searching (not pick-seeker,
 -- preparing/pending, etc.).
--- Exception: Conquer mode — all players use seeker mode from the start of hiding/searching.
+-- Exception: Conquer and Hot Potato — all players use seeker mode from the start of hiding/searching.
 local function nhsMayEnterSeekerMode()
   if not State.gameSessionActive and not State.remoteSessionActive then
     return true
@@ -208,8 +220,8 @@ local function nhsMayEnterSeekerMode()
     return false
   end
   local modeId = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
-  if modeId == "conquer" then
-    return true  -- every player is in seeker mode in Conquer
+  if modeId == "conquer" or modeId == "hot_potato" then
+    return true  -- every player is in seeker mode in Conquer and Hot Potato
   end
   return NHS.LocalPlayerIsDesignatedSeeker() == true
 end
@@ -226,6 +238,9 @@ local function nhsSeekerAutoModeSyncToPhase()
     return
   end
   if State.seekerMode then
+    if not InCombatLockdown() then
+      ClearTarget()
+    end
     return
   end
   setSeekerMode(true)
