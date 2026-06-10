@@ -572,6 +572,7 @@ local function nhsResetGameSession()
   wipe(State.gameHouseHistory)
   wipe(State.gameHouseRotationUsed)
   State.remoteHouseDisplay = nil
+  State.remoteHouseKey = nil
   wipe(State.gameCandidateKeys)
   wipe(State.gameLockedSeekerKeys)
   State.gameLockedHiderKey = nil
@@ -1082,7 +1083,7 @@ local function nhsLeaderPlayAgain(onRefreshUI)
   -- Sync followers through the setup phases they're skipping.
   -- House: sendChat=false — the house was already announced this session.
   if bmf.nhsBroadcastHouseLocked then
-    bmf.nhsBroadcastHouseLocked(houseDisplay, false)
+    bmf.nhsBroadcastHouseLocked(houseDisplay, false, houseKey)
   end
   -- Game mode: always announces to chat so players see the reminder.
   if bmf.nhsBroadcastLeaderGameMode then
@@ -1434,7 +1435,7 @@ local function nhsLeaderBack(onRefreshUI)
     if NHS.ClearRoundGameMode then NHS.ClearRoundGameMode() else State.gameMode = nil end
     wipe(State.gameCandidateKeys)
     State.phase = Phase.PICK_GAME_MODE
-    if bmf and bmf.nhsBroadcastHouseLocked then bmf.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false) end
+    if bmf and bmf.nhsBroadcastHouseLocked then bmf.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false, State.gameLockedHouseKey) end
     print("|cff88ccff[NHS]|r Back to game mode selection.")
   elseif State.phase == Phase.PENDING then
     if NHS.IsHiderMode and NHS.IsHiderMode() then
@@ -1452,7 +1453,7 @@ local function nhsLeaderBack(onRefreshUI)
     State.phase = Phase.PICK_SEEKER
     if bmf and bmf.nhsBroadcastLeaderSync then
       bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_ROUND_OVER, false)
-      bmf.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false)
+      bmf.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false, State.gameLockedHouseKey)
       if State.gameMode then bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_GAME_MODE .. State.gameMode, false) end
     end
     print("|cff88ccff[NHS]|r Back to seeker selection.")

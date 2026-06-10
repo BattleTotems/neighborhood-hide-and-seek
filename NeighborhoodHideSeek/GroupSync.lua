@@ -28,6 +28,9 @@ local NHS_MSG_NP_NEAREST = "[NHS] NP Nearest: "
 local NHS_MSG_HIDER_READY = "[NHS] Hider Ready: "
 local NHS_MSG_SARDINE_JOIN = "[NHS] Sardine: "
 local NHS_MSG_HP_SWAP = "[NHS] HP Swap: "
+-- Separator embedded in the addon-only house payload to carry both key and display in one message.
+-- \31 (unit separator) is safe in addon messages and never appears in house names or persistence keys.
+local NHS_HOUSE_KEY_SEP = "\31"
 
 -- Addon comm: same human-readable NHS line as payload (max 255 bytes).
 local NHS_ADDON_PREFIX = "NeighborhoodHS"
@@ -156,16 +159,39 @@ local function nhsBroadcastRoundStart(keyStr, chatMsg)
   nhsGameplaySendChatIfOutOfCombat(msg, nhsGroupSyncChannel())
 end
 
-local function nhsBroadcastHouseLocked(display, sendChat)
+-- key (optional): the house persistence key. When provided, the addon payload carries
+-- "<key>\31<display>" so followers can store the stable key for stats while still displaying
+-- the human-readable name. Chat always receives the plain display name (unchanged for humans).
+-- Old clients receive the combined addon payload and store it verbatim as remoteHouseDisplay
+-- (garbled, accepted trade-off). New clients split on NHS_HOUSE_KEY_SEP to extract both.
+local function nhsBroadcastHouseLocked(display, sendChat, key)
   if type(display) ~= "string" or display == "" then
     return
   end
   local safe = NHS.HousingPinShare.SanitizeForChat(display)
-  local msg = NHS_MSG_HOUSE .. safe
-  if #msg > 250 then
-    msg = NHS_MSG_HOUSE .. safe:sub(1, math.max(1, 250 - #NHS_MSG_HOUSE - 1)) .. "…"
+  -- Chat: always the human-readable display name (behaviour unchanged).
+  local chatMsg = NHS_MSG_HOUSE .. safe
+  if #chatMsg > 250 then
+    chatMsg = NHS_MSG_HOUSE .. safe:sub(1, math.max(1, 250 - #NHS_MSG_HOUSE - 1)) .. "…"
   end
-  nhsBroadcastLeaderSync(msg, sendChat)
+  if sendChat ~= false then
+    nhsGameplaySendChatIfOutOfCombat(chatMsg, nhsGroupSyncChannel())
+  end
+  -- Addon: persistence key embedded before separator so followers can use it for stats.
+  local addonMsg
+  if type(key) == "string" and key ~= "" then
+    local combined = NHS_MSG_HOUSE .. key .. NHS_HOUSE_KEY_SEP .. safe
+    if #combined <= 255 then
+      addonMsg = combined
+    else
+      -- Combined too long: key only. Follower won't get a clean display from this message.
+      local keyOnly = NHS_MSG_HOUSE .. key
+      addonMsg = #keyOnly <= 255 and keyOnly or chatMsg
+    end
+  else
+    addonMsg = chatMsg
+  end
+  nhsSendAddonSyncPayload(addonMsg)
 end
 
 -- After [NHS] House: … — waypoint link in chat for players (when out of combat) + [NHS] coords on addon for sync.
@@ -621,13 +647,25 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       NHS.ClearCompletedPastRoundsArchive()
     end
     C.State.remoteHouseDisplay = nil
+    C.State.remoteHouseKey = nil
   elseif text:match("^%[NHS%]%s*House:%s*.+") then
     local housePart = text:match("^%[NHS%]%s*House:%s*(.+)%s*$")
     if housePart then
       C.State.remoteSessionActive = true
       C.State.phase = Phase.PICK_GAME_MODE
       C.State.remoteGameMode = nil
-      local disp = housePart:match("^%s*(.-)%s*$") or housePart
+      -- New format: "<key>\31<display>". Old format: plain display string.
+      local sepPos = housePart:find(NHS_HOUSE_KEY_SEP, 1, true)
+      local disp
+      if sepPos and sepPos > 1 then
+        C.State.remoteHouseKey = housePart:sub(1, sepPos - 1)
+        local rawDisp = housePart:sub(sepPos + 1)
+        disp = rawDisp:match("^%s*(.-)%s*$") or rawDisp
+        if disp == "" then disp = C.State.remoteHouseKey end
+      else
+        C.State.remoteHouseKey = nil
+        disp = housePart:match("^%s*(.-)%s*$") or housePart
+      end
       C.State.remoteHouseDisplay = disp
       if C.State.gameHouseHistory[#C.State.gameHouseHistory] ~= disp then
         C.State.gameHouseHistory[#C.State.gameHouseHistory + 1] = disp
@@ -638,6 +676,7 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     C.nhsAppendPastRoundSnapshotIfActiveRound()
     nhsClearRemoteRoundSync()
     C.State.remoteHouseDisplay = nil
+    C.State.remoteHouseKey = nil
     C.State.phase = Phase.PICK_HOUSE
     C.State.remoteGameMode = nil
     if C.State.seekerMode and NHS.SetSeekerMode then
@@ -652,6 +691,7 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     wipe(C.State.gameSeekerHistory)
     wipe(C.State.gameHouseHistory)
     C.State.remoteHouseDisplay = nil
+    C.State.remoteHouseKey = nil
     C.State.remoteGameMode = nil
     nhsClearRemoteRoundSync()
     if C.State.seekerMode and NHS.SetSeekerMode then
@@ -776,7 +816,7 @@ local function nhsLeaderBroadcastGameplayCatchUpSync()
     nhsBroadcastLeaderSync(NHS_MSG_SESSION_START)
     mark()
     if C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "" then
-      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay)
+      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay, nil, C.State.gameLockedHouseKey)
       mark()
       if C.State.gameLockedHouseKey then
         nhsBroadcastGameplayHousePin(
@@ -792,7 +832,7 @@ local function nhsLeaderBroadcastGameplayCatchUpSync()
     if not (C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "") then
       return false, "Confirm a house first so group sync can re-send it."
     end
-    nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay)
+    nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay, nil, C.State.gameLockedHouseKey)
     mark()
     if C.State.gameLockedHouseKey then
       nhsBroadcastGameplayHousePin(
@@ -811,7 +851,7 @@ local function nhsLeaderBroadcastGameplayCatchUpSync()
     end
   elseif IsRoundPhase(gp) then
     if C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "" and C.State.gameLockedHouseKey then
-      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay)
+      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay, nil, C.State.gameLockedHouseKey)
       mark()
       nhsBroadcastGameplayHousePin(
         C.State.gameLockedHouseLiveEntry,

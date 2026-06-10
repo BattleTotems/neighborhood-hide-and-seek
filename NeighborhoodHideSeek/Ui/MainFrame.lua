@@ -1757,7 +1757,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     State.gameHouseCandidateDisplay = nil
     State.phase = Phase.PICK_GAME_MODE
     if IsInGroup() and B.nhsIsRoundLeader() then
-      B.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay)
+      B.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, nil, State.gameLockedHouseKey)
       B.nhsBroadcastGameplayHousePin(
         State.gameLockedHouseLiveEntry,
         State.gameLockedHouseLiveIndex,

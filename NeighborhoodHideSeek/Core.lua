@@ -84,8 +84,10 @@ local State = {
   gameLockedHiderKey = nil,  -- hider mode only: key of the confirmed hider (set on round start, committed to rotation on HIDING)
   gameSeekerHistory = {},
   gameRotationUsed = {},
-  -- Follower: last house line from leader addon sync (same text may appear in party/raid when out of combat).
+  -- Follower: house data from leader addon sync. remoteHouseKey is the persistence key (new format);
+  -- remoteHouseDisplay is the human-readable name. Both nil until a House message is received.
   remoteHouseDisplay = nil,
+  remoteHouseKey = nil,
   -- Round flow: leader/seeker addon messages; optional party/raid chat for players when not in combat lockdown.
   remoteSeekerKeys = {},     -- follower mirror of leader's seeker key list for this round
   -- Follower: leader sent "[NHS] Game session started" (stays true until Game Over chat).
@@ -171,6 +173,7 @@ local function nhsSyncGroupLeaveCleanup()
     State.remoteSessionActive = false
     State.remoteGameMode = nil
     State.remoteHouseDisplay = nil
+    State.remoteHouseKey = nil
     State.phase = Phase.NONE
   end
 

@@ -192,11 +192,19 @@ sense. Not tracked for Sardines or Hot Potato (different semantics).
 | Search phase start time | `State.searchPhaseStartTime` ✓ | Not set — must derive from SEEKING message receipt |
 | Search phase duration | `State.searchPhaseDuration` ✓ | Not set — must be inferred or broadcast |
 
-### Follower house key workaround
-Followers can only store stats keyed by **display name string** for houses, not by persistence key.
-This means the same house under a renamed display could split into two entries over time.
-**Decision: accept this limitation for follower house stats.** A future enhancement could sync
-the house key via an addon message, but that is out of scope for v1.
+### Follower house key
+Followers receive the house persistence key via the updated `[NHS] House:` addon payload.
+The addon message now carries `<key>\31<display>` (unit separator `\31`); followers split on
+it to extract both. Chat message is unchanged — humans still see the plain display name.
+
+`State.remoteHouseKey` is populated on receipt and cleared at ROUND_OVER, GAME_OVER,
+SESSION_START, and group-disbanded. Old clients (pre-update) receive the combined payload
+and store it verbatim as `remoteHouseDisplay` (garbled display, accepted trade-off).
+Old leaders (pre-update) send no separator; new followers detect this and set `remoteHouseKey = nil`
+falling back to display-only house tracking for that session.
+
+House stats now use the persistence key as the stat key on both leader and follower clients,
+so data merges correctly across sessions regardless of which role the player held.
 
 ### Follower search time tracking
 Followers record `State.followerSearchPhaseStartTime = GetTime()` when they receive the
