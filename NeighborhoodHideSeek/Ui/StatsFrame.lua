@@ -1,0 +1,272 @@
+--[[
+  "Your Stats" lifetime stats popup. Load after Ui/ScrollUtil.lua; before Ui/MainFrame.lua.
+]]
+
+local NHS = NeighborhoodHideSeek
+
+StaticPopupDialogs["NHS_CONFIRM_RESET_STATS"] = {
+  text = "Reset all lifetime stats for |cffffffff%s|r?\n\nThis cannot be undone.",
+  button1 = "Reset",
+  button2 = "Cancel",
+  OnAccept = function()
+    local charKey = NeighborhoodHideSeek.LocalCharacterKey
+    if charKey and NHSV and type(NHSV.charStats) == "table" then
+      NHSV.charStats[charKey] = nil
+    end
+    print("|cff88ff88[NHS]|r Character stats have been reset.")
+  end,
+  timeout = 0,
+  whileDead = true,
+  hideOnEscape = true,
+  preferredIndex = 3,
+}
+
+local function fmtSeconds(s)
+  s = math.floor(s or 0)
+  if s <= 0 then return "0s" end
+  local h = math.floor(s / 3600)
+  local m = math.floor((s % 3600) / 60)
+  local rem = s % 60
+  if h > 0 then
+    return ("%dh %dm"):format(h, m)
+  elseif m > 0 then
+    return ("%dm %ds"):format(m, rem)
+  else
+    return ("%ds"):format(rem)
+  end
+end
+
+local function pct(num, den)
+  if not num or not den or den == 0 then return "-" end
+  return ("%.0f%%"):format(100 * num / den)
+end
+
+local function topNIntTable(t, n)
+  if type(t) ~= "table" then return {} end
+  local items = {}
+  for k, v in pairs(t) do
+    items[#items + 1] = { key = k, count = tonumber(v) or 0 }
+  end
+  table.sort(items, function(a, b) return a.count > b.count end)
+  local result = {}
+  for i = 1, math.min(n, #items) do
+    result[#result + 1] = items[i]
+  end
+  return result
+end
+
+local function topNEncounterTable(t, n)
+  if type(t) ~= "table" then return {} end
+  local items = {}
+  for k, v in pairs(t) do
+    local count = type(v) == "table" and (v.count or 0) or (tonumber(v) or 0)
+    local disp = type(v) == "table" and v.display or Ambiguate(tostring(k), "short")
+    items[#items + 1] = { disp = disp, count = count }
+  end
+  table.sort(items, function(a, b) return a.count > b.count end)
+  local result = {}
+  for i = 1, math.min(n, #items) do
+    result[#result + 1] = items[i]
+  end
+  return result
+end
+
+local function houseDisplay(key)
+  local labels = NHSV and NHSV.houseLabels
+  if type(labels) == "table" and type(labels[key]) == "string" then
+    return labels[key]
+  end
+  -- Persistence key format: stableKey + \1 + neighborhood + \2 + subdivision + \3 + playerName
+  local after = key:match("\3(.+)$")
+  if after and #after > 0 then
+    return after
+  end
+  return key:sub(1, 30)
+end
+
+function NHS.CreateStatsFrame()
+  local statsFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+  statsFrame:SetSize(320, 460)
+  statsFrame:SetClampedToScreen(true)
+  statsFrame:SetMovable(true)
+  statsFrame:EnableMouse(true)
+  statsFrame:RegisterForDrag("LeftButton")
+  statsFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
+  statsFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
+    NHS.EnsureSavedVars()
+    local p, _, rp, x, y = self:GetPoint(1)
+    NHSV.statsFramePoint = { p, rp or "UIParent", x, y }
+  end)
+  statsFrame:SetBackdrop({
+    bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
+    edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+    tile = true, tileSize = 32, edgeSize = 16,
+    insets = { left = 8, right = 8, top = 8, bottom = 8 },
+  })
+  statsFrame:SetBackdropColor(0, 0, 0, 0.9)
+
+  local titleFs = statsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  titleFs:SetPoint("TOP", 0, -14)
+  titleFs:SetText("Your Stats")
+
+  local scroll = CreateFrame("ScrollFrame", nil, statsFrame)
+  scroll:SetPoint("TOPLEFT", 16, -42)
+  scroll:SetSize(288, 370)
+  NHS.SetupScrollFrameMouseWheel(scroll)
+
+  local scrollChild = CreateFrame("Frame", nil, scroll)
+  scrollChild:SetSize(288, 1)
+  scroll:SetScrollChild(scrollChild)
+
+  local bodyText = scrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  bodyText:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, 0)
+  bodyText:SetWidth(278)
+  bodyText:SetJustifyH("LEFT")
+  bodyText:SetJustifyV("TOP")
+  bodyText:SetSpacing(3)
+
+  local closeBtn = CreateFrame("Button", nil, statsFrame, "UIPanelCloseButton")
+  closeBtn:SetPoint("TOPRIGHT", -6, -6)
+  closeBtn:SetScript("OnClick", function() statsFrame:Hide() end)
+
+  local resetStatsBtn = CreateFrame("Button", nil, statsFrame, "UIPanelButtonTemplate")
+  resetStatsBtn:SetSize(150, 24)
+  resetStatsBtn:SetPoint("BOTTOM", statsFrame, "BOTTOM", 0, 12)
+  resetStatsBtn:SetText("Reset Stats")
+  resetStatsBtn:SetScript("OnClick", function()
+    local charKey = NHS.LocalCharacterKey
+    local shortName = charKey and Ambiguate(charKey, "short") or "this character"
+    StaticPopup_Show("NHS_CONFIRM_RESET_STATS", shortName)
+  end)
+  resetStatsBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:SetText("Reset Stats")
+    GameTooltip:AddLine("Permanently clears all lifetime stats\nfor your character. Cannot be undone.", 1, 0.6, 0.6, true)
+    GameTooltip:Show()
+  end)
+  resetStatsBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+  statsFrame:Hide()
+
+  local function refreshStatsPanel()
+    scroll:SetVerticalScroll(0)
+    local charKey = NHS.LocalCharacterKey
+    local s = charKey and NHSV and type(NHSV.charStats) == "table" and NHSV.charStats[charKey]
+    if not s then
+      bodyText:SetText("No stats recorded yet.\n\nPlay some rounds to start tracking!")
+      scrollChild:SetHeight(math.max(bodyText:GetStringHeight() + 8, 1))
+      return
+    end
+
+    local G = "|cffffd700"
+    local D = "|cffaaaaaa"
+    local R = "|r"
+    local lines = {}
+    local function add(t) lines[#lines + 1] = t end
+    local function gap() add("") end
+    local function hdr(t) add(G .. t .. R) end
+
+    add(D .. Ambiguate(charKey, "short") .. R)
+    gap()
+
+    hdr("ROUNDS")
+    add(("  Played: %d  |  Seeker: %d  |  Hider: %d"):format(
+      s.roundsPlayed or 0, s.roundsAsSeeker or 0, s.roundsAsHider or 0))
+
+    gap()
+    hdr("WINS & SURVIVALS")
+    add(("  Seeker wins:     %d / %d  (%s)"):format(
+      s.seekerWins or 0, s.roundsAsSeeker or 0, pct(s.seekerWins, s.roundsAsSeeker)))
+    add(("  Hider survivals: %d / %d  (%s)"):format(
+      s.hiderSurvivals or 0, s.roundsAsHider or 0, pct(s.hiderSurvivals, s.roundsAsHider)))
+    if (s.timesFirstFound or 0) > 0 or (s.timesLastFound or 0) > 0 then
+      add(("  First found: %d  |  Last found: %d"):format(
+        s.timesFirstFound or 0, s.timesLastFound or 0))
+    end
+    if (s.hotPotatoWins or 0) > 0 or (s.hotPotatoLosses or 0) > 0 then
+      add(("  Hot Potato  wins: %d  |  losses: %d"):format(
+        s.hotPotatoWins or 0, s.hotPotatoLosses or 0))
+    end
+
+    gap()
+    hdr("TIME")
+    add("  Searching:   " .. fmtSeconds(s.secondsSearching))
+    add("  Hiding:      " .. fmtSeconds(s.secondsHiding))
+    add("  In sessions: " .. fmtSeconds(s.totalSessionSeconds))
+
+    gap()
+    hdr("SESSIONS")
+    add(("  Played: %d"):format(s.sessionsPlayed or 0))
+
+    if type(s.modeCounts) == "table" and next(s.modeCounts) then
+      local modeList = {}
+      for _, modeId in ipairs(NHS.GAME_MODE_IDS or {}) do
+        local count = s.modeCounts[modeId]
+        if count and count > 0 then
+          modeList[#modeList + 1] = { id = modeId, count = count }
+        end
+      end
+
+      if #modeList > 0 then
+        gap()
+        hdr("BY GAME MODE")
+        for _, entry in ipairs(modeList) do
+          local modeId = entry.id
+          local label = (NHS.GameModeHudLabel and NHS.GameModeHudLabel(modeId)) or modeId
+          add(("  %s (%d)"):format(label, entry.count))
+          if modeId == "hot_potato" then
+            local wins   = s.hotPotatoWins   or 0
+            local losses = s.hotPotatoLosses or 0
+            local total  = entry.count
+            add(("    Won:  %d / %d  (%s)"):format(wins,   total, pct(wins,   total)))
+            add(("    Lost: %d / %d  (%s)"):format(losses, total, pct(losses, total)))
+          else
+            local seekRounds = (type(s.modeSeekerRounds)   == "table" and s.modeSeekerRounds[modeId])   or 0
+            local hideRounds = (type(s.modeHiderRounds)    == "table" and s.modeHiderRounds[modeId])    or 0
+            local seekWins   = (type(s.modeSeekerWins)     == "table" and s.modeSeekerWins[modeId])     or 0
+            local hideWins   = (type(s.modeHiderSurvivals) == "table" and s.modeHiderSurvivals[modeId]) or 0
+            if seekRounds > 0 then
+              add(("    Seeking: %d / %d  (%s)"):format(seekWins, seekRounds, pct(seekWins, seekRounds)))
+            end
+            if hideRounds > 0 then
+              add(("    Hiding:  %d / %d  (%s)"):format(hideWins, hideRounds, pct(hideWins, hideRounds)))
+            end
+          end
+        end
+      end
+    end
+
+    if type(s.neighborhoodCounts) == "table" and next(s.neighborhoodCounts) then
+      gap()
+      hdr("BY NEIGHBORHOOD")
+      for _, e in ipairs(topNIntTable(s.neighborhoodCounts, 5)) do
+        add(("  %s: %d"):format(tostring(e.key), e.count))
+      end
+    end
+
+    if type(s.houseCounts) == "table" and next(s.houseCounts) then
+      gap()
+      hdr("BY HOUSE")
+      for _, e in ipairs(topNEncounterTable(s.houseCounts, 5)) do
+        add(("  %s: %d"):format(tostring(e.disp), e.count))
+      end
+    end
+
+    if type(s.playerEncounters) == "table" and next(s.playerEncounters) then
+      gap()
+      hdr("PLAYED WITH")
+      for _, e in ipairs(topNEncounterTable(s.playerEncounters, 8)) do
+        add(("  %s: %d"):format(tostring(e.disp), e.count))
+      end
+    end
+
+    bodyText:SetText(table.concat(lines, "\n"))
+    scrollChild:SetHeight(math.max(bodyText:GetStringHeight() + 8, 1))
+  end
+
+  return {
+    frame = statsFrame,
+    refresh = refreshStatsPanel,
+  }
+end

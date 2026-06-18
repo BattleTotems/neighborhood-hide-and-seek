@@ -108,9 +108,22 @@ local State = {
   recentlyPlayedModes = {},
   -- Hot Potato: key of the player who tagged the current seeker; they cannot be tagged back.
   hotPotatoTaggedBy = nil,
+  -- Stats: initial seeker keys for the current round (leader: set at HIDING/SEARCHING; follower: set at Round Start).
+  -- Read by nhsAccumulateRoundStats at round end to determine original roles before any mid-round swaps.
+  gameRoundInitialSeekerKeys = {},
+  -- Follower: GetTime() when the current round's SEARCHING message was first received (for secondsHiding/secondsSearching).
+  -- Guarded on receipt so re-syncs do not reset the timer. Cleared at ROUND_OVER and GAME_OVER.
+  followerSearchPhaseStartTime = nil,
+  -- Leader: GetTime() when SEARCHING phase started, not reset by Overtime +time adjustments (unlike searchPhaseStartTime).
+  searchPhaseOriginalStartTime = nil,
+  -- Unix timestamp (time()) of the most recent phase start. Flushed to totalSessionSeconds at every
+  -- phase transition; cleared at session end. Losing this on logout only drops the current phase's time.
+  statsPhaseStartTime = nil,
 }
 
 NeighborhoodHideSeek.State = State
+-- Stable "Name-Realm" key for the logged-in character; set at ADDON_LOADED. Used to key NHSV.charStats.
+NeighborhoodHideSeek.LocalCharacterKey = nil
 
 local function clearFound()
   wipe(State.foundOrder)
@@ -189,6 +202,12 @@ loader:RegisterEvent("GROUP_ROSTER_UPDATE")
 loader:RegisterEvent("PARTY_LEADER_CHANGED")
 loader:SetScript("OnEvent", function(_, event, name)
   if event == "ADDON_LOADED" and name == ADDON_NAME then
+    do
+      local pName, pRealm = UnitFullName("player")
+      if pName and pName ~= "" then
+        NeighborhoodHideSeek.LocalCharacterKey = (pRealm and pRealm ~= "") and (pName .. "-" .. pRealm) or pName
+      end
+    end
     NeighborhoodHideSeek.EnsureSavedVars()
     NeighborhoodHideSeek.InitSessionHud()
     NeighborhoodHideSeek.HydrateGameSessionFromSaved()

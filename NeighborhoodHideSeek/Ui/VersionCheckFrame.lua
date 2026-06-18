@@ -13,8 +13,11 @@ local NHS = NeighborhoodHideSeek
 
 local NHS_MSG_VERSION_REPLY_PREFIX = "[NHS] Version: "
 
-local REPLY_COOLDOWN = 12  -- seconds between version replies from this client
-local lastReplySentAt = 0
+-- Sender-side cooldown: limits how often THIS client can broadcast a new version check.
+-- Receivers have no cooldown and always reply immediately.
+local SEND_COOLDOWN          = 15   -- seconds between outgoing checks from this client
+local lastSendAt             = 0
+local activeCountdownTicker  = nil  -- tracked so it can be cancelled and re-armed
 
 -- Non-nil only while this client is the initiator of an active check.
 -- { active=bool, results={[canonicalKey]={display, version, responded, mismatch, noResponse}} }
@@ -106,27 +109,23 @@ end
 -- ---- Reply (any client receiving a query sends this) -------------------------
 
 local function nhsSendVersionReply()
-  local now = GetTime()
-  if (now - lastReplySentAt) < REPLY_COOLDOWN then return end
   local myKey = nhsMyKey()
   if not myKey or myKey == "" then return end
   local msg = NHS_MSG_VERSION_REPLY_PREFIX .. myKey .. " " .. nhsMyVersion()
-  if nhsSendVersionAddonMsg(msg) then
-    lastReplySentAt = now
-  end
+  nhsSendVersionAddonMsg(msg)
 end
 
 -- ---- Protocol handlers (called by GroupSync dispatch) ------------------------
 
--- Query format: "[NHS] Version? <version>"  (bare "[NHS] Version?" also accepted for safety)
+-- Query format: "[NHS] Version? <version>"
+-- The first whitespace-delimited token after "?" is the initiator's version; anything
+-- further is ignored (forward-compat).  Bare "[NHS] Version?" is also accepted.
 local function nhsApplyVersionQuery(senderName, text)
-  -- Match "[NHS] Version?" with optional trailing " <version>"
   local rest = text:match("^%[NHS%] Version%?(.*)$")
   if not rest then return false end
-  local queryVer = rest:match("^%s+(%S+)%s*$")  -- nil when bare "[NHS] Version?" with no payload
+  local queryVer = rest:match("^%s+(%S+)")  -- nil for bare "[NHS] Version?"
 
   -- Non-initiators: compare the embedded version against ours immediately.
-  -- No need to wait for a separate reply — the answer is already in the query.
   if not activeCheck and queryVer then
     local myVer = nhsMyVersion()
     if queryVer ~= myVer then
@@ -235,6 +234,7 @@ local function nhsGetOrCreateCheckFrame()
   recheckBtn:SetScript("OnClick", function()
     if nhsTriggerVersionCheck then nhsTriggerVersionCheck() end
   end)
+  f._recheckBtn = recheckBtn
 
   local closeBtn = CreateFrame("Button", nil, f, "UIPanelCloseButton")
   closeBtn:SetPoint("TOPRIGHT", -6, -6)
@@ -300,6 +300,29 @@ nhsRefreshVersionCheckFrame = function()
   f._scroll:SetVerticalScroll(0)
 end
 
+-- ---- Sender-side cooldown countdown -----------------------------------------
+
+local function nhsStartRecheckCountdown(btn, remainingSeconds)
+  if not btn then return end
+  if activeCountdownTicker then
+    activeCountdownTicker:Cancel()
+    activeCountdownTicker = nil
+  end
+  local remaining = math.max(1, math.floor(remainingSeconds or SEND_COOLDOWN))
+  btn:SetEnabled(false)
+  btn:SetText("Re-check (" .. remaining .. "s)")
+  activeCountdownTicker = C_Timer.NewTicker(1, function()
+    remaining = remaining - 1
+    if remaining <= 0 then
+      activeCountdownTicker = nil
+      btn:SetEnabled(true)
+      btn:SetText("Re-check")
+    else
+      btn:SetText("Re-check (" .. remaining .. "s)")
+    end
+  end, remaining)
+end
+
 -- ---- TriggerCheck (public entry point) ---------------------------------------
 
 nhsTriggerVersionCheck = function()
@@ -307,6 +330,17 @@ nhsTriggerVersionCheck = function()
     print("|cffffcc00[NHS]|r Join a group to check addon versions.")
     return
   end
+
+  local now = GetTime()
+  if (now - lastSendAt) < SEND_COOLDOWN then
+    -- Still on cooldown — surface the existing popup and ensure the button stays disabled
+    -- with the correct remaining time (re-arms the ticker in case of edge-case timing drift).
+    local f = nhsGetOrCreateCheckFrame()
+    f:Show()
+    nhsStartRecheckCountdown(f._recheckBtn, math.ceil(SEND_COOLDOWN - (now - lastSendAt)))
+    return
+  end
+  lastSendAt = now
 
   activeCheck = { active = true, results = {} }
 
@@ -344,13 +378,12 @@ nhsTriggerVersionCheck = function()
     end
   end
 
-  -- Embed our version in the query so recipients can compare immediately without
-  -- waiting for a separate reply to arrive.
   nhsSendVersionAddonMsg("[NHS] Version? " .. nhsMyVersion())
 
   local f = nhsGetOrCreateCheckFrame()
   f:Show()
   nhsRefreshVersionCheckFrame()
+  nhsStartRecheckCountdown(f._recheckBtn)
 
   -- After 5 seconds mark non-responders and close the active state.
   C_Timer.After(5, function()

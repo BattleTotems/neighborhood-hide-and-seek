@@ -84,24 +84,14 @@ local function markTargetFound(opts)
       return
     end
   end
-  if State.foundSet[key] then
-    return
-  end
+  local modeId = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
   local disp = UnitName("target") or Ambiguate(key, "short")
 
   -- Sardines mode: seeker joins the sardine rather than marking the hider found.
-  local modeId = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
+  -- The dskKeys loop above already blocks targeting current seekers. Any group member who
+  -- passed that check is either the sardine or a seeker who already joined and was removed
+  -- from the seeker list — both are valid targets, so no further validity check is needed.
   if modeId == "sardines" then
-    local hiderKey = State.gameLockedHiderKey
-    local isSardine = hiderKey and (
-      (NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(key, hiderKey)) or key == hiderKey
-    )
-    if not isSardine then
-      if not quiet then
-        print("|cffff8800[NHS]|r Target the sardine player to join them.")
-      end
-      return
-    end
     local myKey = NHS.LocalPlayerSortKey()
     if not myKey then return end
     if State.foundSet[myKey] then return end
@@ -117,6 +107,12 @@ local function markTargetFound(opts)
         break
       end
     end
+    for i = #State.remoteSeekerKeys, 1, -1 do
+      if NHS.GroupSortKeysEquivalent(State.remoteSeekerKeys[i], myKey) then
+        table.remove(State.remoteSeekerKeys, i)
+        break
+      end
+    end
     if State.seekerMode and NHS.SetSeekerMode then NHS.SetSeekerMode(false) end
     print(("|cff88ff88[NHS]|r Joined the sardine with %s!"):format(disp))
     if NHS.TryLeaderAutoReveal then NHS.TryLeaderAutoReveal() end
@@ -128,6 +124,10 @@ local function markTargetFound(opts)
       if UI.RefreshFound then UI.RefreshFound() elseif NHS.SessionHudUpdate then NHS.SessionHudUpdate() end
     end
     NHS.PersistGameSessionToSaved()
+    return
+  end
+
+  if State.foundSet[key] then
     return
   end
 

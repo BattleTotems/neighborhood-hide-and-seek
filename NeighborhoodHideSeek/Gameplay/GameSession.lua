@@ -554,6 +554,7 @@ local function nhsHydrateGameSessionFromSaved()
 end
 
 local function nhsResetGameSession()
+  State.statsPhaseStartTime = nil  -- nhsEndPhaseClock() already flushed before this is called
   if NHS.ClearRevealMarkers then
     NHS.ClearRevealMarkers()
   end
@@ -573,6 +574,9 @@ local function nhsResetGameSession()
   wipe(State.gameHouseRotationUsed)
   State.remoteHouseDisplay = nil
   State.remoteHouseKey = nil
+  wipe(State.gameRoundInitialSeekerKeys)
+  State.followerSearchPhaseStartTime = nil
+  State.searchPhaseOriginalStartTime = nil
   wipe(State.gameCandidateKeys)
   wipe(State.gameLockedSeekerKeys)
   State.gameLockedHiderKey = nil
@@ -850,7 +854,7 @@ local function nhsPastRoundHouseAndKey()
     return State.gameLockedHouseDisplay, State.gameLockedHouseKey
   end
   if State.remoteSessionActive and IsRoundPhase(State.phase) and State.remoteHouseDisplay and State.remoteHouseDisplay ~= "" then
-    return State.remoteHouseDisplay, nil
+    return State.remoteHouseDisplay, State.remoteHouseKey
   end
   return nil, nil
 end
@@ -866,6 +870,7 @@ local function nhsAppendPastRoundSnapshotIfActiveRound()
   if not State.gameSessionActive and not State.remoteSessionActive then
     return
   end
+  NHS.AccumulateRoundStats()
   local houseDisp = nhsPastRoundHouseAndKey()
   if not houseDisp or houseDisp == "" then
     houseDisp = "—"
@@ -965,6 +970,7 @@ local function nhsLeaderPerformEndRound(onRefreshUI)
   else
     State.gameMode = nil
   end
+  NHS.FlushPhaseClock()
   State.phase = Phase.PICK_HOUSE
   State.gameHouseCandidateKey = nil
   State.gameHouseCandidateDisplay = nil
@@ -1078,6 +1084,7 @@ local function nhsLeaderPlayAgain(onRefreshUI)
     end
   end
 
+  NHS.FlushPhaseClock()
   State.phase = Phase.PENDING
 
   -- Sync followers through the setup phases they're skipping.
@@ -1151,11 +1158,25 @@ local function nhsLeaderBroadcastRoundPhase(phase)
       NHS.LiveRefreshIfOpen("houses")
       NHS.LiveRefreshIfOpen("seekers")
     end
+    -- Step 1 of 2: capture initial seeker keys for stats. Overwritten at SEARCHING to pick up late-joiners.
+    wipe(State.gameRoundInitialSeekerKeys)
+    for _, k in ipairs(State.gameLockedSeekerKeys) do
+      State.gameRoundInitialSeekerKeys[#State.gameRoundInitialSeekerKeys + 1] = k
+    end
+    NHS.FlushPhaseClock()
     State.phase = Phase.HIDING
     if bmf.nhsBroadcastLeaderSync then bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_HIDING) end
     nhsPlayHidingPhaseStartSound()
   elseif phase == Phase.SEARCHING then
     wipe(State.hiderReadySet)
+    -- Step 2 of 2: overwrite to pick up any players who joined during the hiding phase and were
+    -- added as seekers by nhsLeaderHiderModeAddLateJoiners. Conquer/Hot Potato swaps haven't
+    -- happened yet so this is still the correct "initial" seeker set for stats purposes.
+    wipe(State.gameRoundInitialSeekerKeys)
+    for _, k in ipairs(State.gameLockedSeekerKeys) do
+      State.gameRoundInitialSeekerKeys[#State.gameRoundInitialSeekerKeys + 1] = k
+    end
+    NHS.FlushPhaseClock()
     State.phase = Phase.SEARCHING
     local keyParts = {}
     for _, k in ipairs(State.gameLockedSeekerKeys) do
@@ -1172,6 +1193,7 @@ local function nhsLeaderBroadcastRoundPhase(phase)
     end
     nhsLeaderTryPromoteSeekerForRaidWarn()
   elseif phase == Phase.REVEALING then
+    NHS.FlushPhaseClock()
     State.phase = Phase.REVEALING
     do
       -- Build congratulatory chat message: praise surviving hiders, or the seeker(s) if all found.
@@ -1198,6 +1220,15 @@ local function nhsLeaderBroadcastRoundPhase(phase)
       if revealModeId == "hot_potato" and #State.gameLockedSeekerKeys > 0 then
         local loserName = Ambiguate(State.gameLockedSeekerKeys[1], "short")
         chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " " .. loserName .. " is holding the Hot Potato!"
+      elseif revealModeId == "sardines" then
+        local sardineName = State.gameLockedHiderKey and Ambiguate(State.gameLockedHiderKey, "short") or "the sardine"
+        if #State.gameLockedSeekerKeys == 0 then
+          -- All seekers found and joined the sardine pile.
+          chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " Everyone squeezed in with " .. sardineName .. "!"
+        else
+          -- Time ran out; some seekers never found the sardine.
+          chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " Congratulations to " .. sardineName .. " for staying hidden!"
+        end
       elseif #hiderNames > 0 then
         chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " Congratulations to " .. nameList(hiderNames) .. " for staying hidden!"
       else
@@ -1258,9 +1289,13 @@ end
 -- End the current game session (broadcasts game-over then resets state).
 local function nhsLeaderEndSession(onRefreshUI)
   local bmf = NHS.BuildMainFrameBridge
+  -- Snapshot the round before resetting so sessions ended during a round phase
+  -- (e.g. End Session while still in Revealing) don't lose the last round's data.
+  nhsAppendPastRoundSnapshotIfActiveRound()
   if IsInGroup() and nhsIsRoundLeader() and bmf and bmf.nhsBroadcastLeaderSync then
     bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_GAME_OVER)
   end
+  NHS.EndPhaseClock()
   nhsResetGameSession()
   print("|cff88ccff[NHS]|r Game session ended.")
   if onRefreshUI then onRefreshUI() else nhsRefreshGameUi() end
@@ -1291,6 +1326,7 @@ local function nhsLeaderStartSession(onAfterStart)
   wipe(State.pastRounds)
   wipe(State.recentlyPlayedModes)
   nhsClearCompletedPastRoundsArchive()
+  NHS.RecordSessionStart()
   nhsPersistGameSessionToSaved()
   if IsInGroup() and nhsIsRoundLeader() and bmf and bmf.nhsBroadcastLeaderSync then
     bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_SESSION_START)
@@ -1310,6 +1346,7 @@ local function nhsLeaderSelectGameMode(modeId, onRefreshUI)
   end
   if not NHS.IsValidGameMode or not NHS.IsValidGameMode(modeId) then return end
   State.gameMode = modeId
+  NHS.FlushPhaseClock()
   State.phase = Phase.PICK_SEEKER
   -- Track last 2 modes played this session (used to default their checkboxes off next round).
   for i = #State.recentlyPlayedModes, 1, -1 do
@@ -1352,6 +1389,7 @@ local function nhsLeaderConfirmSeeker(onRefreshUI)
     end
     local hiderName = Ambiguate(hiderKey, "short")
     wipe(State.gameCandidateKeys)
+    NHS.FlushPhaseClock()
     State.phase = Phase.PENDING
     if bmf and bmf.nhsBroadcastRoundStart then
       bmf.nhsBroadcastRoundStart(table.concat(State.gameLockedSeekerKeys, ","), "[NHS] Hider Selected: " .. hiderName)
@@ -1366,6 +1404,7 @@ local function nhsLeaderConfirmSeeker(onRefreshUI)
     end
     -- gameRotationUsed and gameSeekerHistory committed when hide timer starts (HIDING phase).
     wipe(State.gameCandidateKeys)
+    NHS.FlushPhaseClock()
     State.phase = Phase.PENDING
     local nameStr = table.concat(names, ", ")
     if bmf and bmf.nhsBroadcastRoundStart then
@@ -1391,6 +1430,7 @@ local function nhsLeaderStartPhaseCountdown(phase, sec, presetName, onRefreshUI)
   nhsLeaderBroadcastRoundPhase(phase)
   if phase == Phase.SEARCHING then
     State.searchPhaseStartTime = GetTime()
+    State.searchPhaseOriginalStartTime = GetTime()
     State.searchPhaseDuration = sec
   end
   local phaseLabel = phase == Phase.HIDING and "Hiding" or "Searching"
@@ -1428,12 +1468,14 @@ local function nhsLeaderBack(onRefreshUI)
     State.gameLockedHouseDisplay = nil
     State.gameLockedHouseLiveEntry = nil
     State.gameLockedHouseLiveIndex = nil
+    NHS.FlushPhaseClock()
     State.phase = Phase.PICK_HOUSE
     if bmf and bmf.nhsBroadcastLeaderSync then bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_ROUND_OVER, false) end
     print("|cff88ccff[NHS]|r Back to house selection.")
   elseif State.phase == Phase.PICK_SEEKER then
     if NHS.ClearRoundGameMode then NHS.ClearRoundGameMode() else State.gameMode = nil end
     wipe(State.gameCandidateKeys)
+    NHS.FlushPhaseClock()
     State.phase = Phase.PICK_GAME_MODE
     if bmf and bmf.nhsBroadcastHouseLocked then bmf.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false, State.gameLockedHouseKey) end
     print("|cff88ccff[NHS]|r Back to game mode selection.")
@@ -1450,6 +1492,7 @@ local function nhsLeaderBack(onRefreshUI)
     clearFound()
     nhsStopPartyCountdown()
     if State.seekerMode and NHS.SetSeekerMode then NHS.SetSeekerMode(false) end
+    NHS.FlushPhaseClock()
     State.phase = Phase.PICK_SEEKER
     if bmf and bmf.nhsBroadcastLeaderSync then
       bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_ROUND_OVER, false)

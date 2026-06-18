@@ -43,6 +43,14 @@ keys but always uses the full realm suffix for unambiguous cross-character keyin
 
 Stats are accumulated at **round end**, not round start or display time.
 
+### Solo-session guard
+Stats are only accumulated when the player is in a group (`IsInGroup()`). Solo sessions (not in
+a group) run the full leader flow normally but produce no stat entries. This prevents test
+sessions and solo exploration from polluting lifetime data. The guard appears at the top of
+`nhsAccumulateRoundStats()` and wraps the session-timing blocks in `nhsLeaderStartSession()`,
+`nhsLeaderEndSession()`, and `nhsResetGameSession()`. `State.statsSessionStartTime` is still
+cleared on solo reset to avoid a stale timestamp if the player later joins a group.
+
 ### Leader path
 `nhsAccumulateRoundStats()` fires alongside `nhsAppendPastRoundSnapshotIfActiveRound()`.
 At that moment all raw data is available: house key, mode ID, seeker keys, found order, roster.
@@ -53,11 +61,31 @@ at the same point where `nhsAppendPastRoundSnapshotIfActiveRound()` is already c
 Followers have less data (see Section 6) but can still accumulate most stats.
 
 ### Session start/end
-- `nhsLeaderStartSession()` records `State.statsSessionStartTime = time()` (Unix timestamp).
-- `nhsResetGameSession()` computes elapsed = `time() - State.statsSessionStartTime` and
-  adds it to the character stats before resetting.
-- Follower session timing: `[NHS] Game session started` sets follower session start time;
-  `[NHS] Game Over!` finalizes it.
+- `nhsLeaderStartSession()` records `State.statsSessionStartTime = time()` (Unix timestamp) and
+  increments `sessionsStarted`.
+- `nhsLeaderEndSession()` increments `sessionsCompleted` then calls `nhsResetGameSession()`.
+- `nhsResetGameSession()` accumulates elapsed = `time() - State.statsSessionStartTime` into
+  `totalSessionSeconds` and clears the timestamp. This runs for both normal session-end AND
+  group-disbanded teardown (abandoned sessions still count toward time; `sessionsCompleted` is
+  not incremented for abandonments).
+- Follower session timing: `[NHS] Game session started` sets `State.statsSessionStartTime = time()`
+  and increments `sessionsStarted`.
+- `[NHS] Game Over!` on followers accumulates session time, increments `sessionsCompleted`, and
+  clears the timestamp before any state reset.
+
+### Session-end round capture (ending while a round is still active)
+If the leader calls "End Session" while still in the REVEALING phase (the last round was never
+explicitly ended), the last round's data would be lost without a snapshot guard.
+
+**Leader path**: `nhsLeaderEndSession()` calls `nhsAppendPastRoundSnapshotIfActiveRound()` first,
+which in turn calls `nhsAccumulateRoundStats()`. Both fire before any state reset.
+
+**Follower path**: The `[NHS] Game Over!` handler calls `C.nhsAppendPastRoundSnapshotIfActiveRound()`
+before clearing state. If the follower is still in a round phase (e.g., REVEALING), this captures
+and accumulates the last round.
+
+The guard inside `nhsAppendPastRoundSnapshotIfActiveRound` (`phase == PENDING` returns early) means
+sessions ended in non-round phases (e.g., PICK_HOUSE) do not produce spurious stat entries.
 
 ---
 
@@ -80,23 +108,19 @@ Followers have less data (see Section 6) but can still accumulate most stats.
 | Stat | Notes |
 |---|---|
 | `playerEncounters` | `{ ["Name-Realm"] = { display="Name", count=N } }` — rounds played alongside each player |
-| `uniquePlayersCount` | Derived at display time from `#playerEncounters` |
-| `playerFoundByMe` | `{ key = count }` — hiders found by local player as seeker |
-| `playerFoundMe` | `{ key = count }` — times each player found the local player (leader only; follower can infer from `foundOrder` sender) |
 
 ### Location
 | Stat | Notes |
 |---|---|
-| `houseCounts` | `{ ["persistenceKey"] = { display="...", count=N } }` — full persistence key used (see Section 4); display is most-recently-seen label |
-| `uniqueHousesCount` | Derived at display time |
-| `neighborhoodCounts` | Bucketed from house persistence key's neighborhood component |
+| `houseCounts` | `{ ["persistenceKey"] = N }` — integer count per full persistence key (see Section 4) |
+| `neighborhoodCounts` | `{ ["Neighborhood Name"] = N }` — integer count, bucketed from house key's neighborhood component |
 
 ### Mode breakdown
 | Stat | Notes |
 |---|---|
-| `modeCounts` | `{ ["normal"] = N, ... }` — rounds per mode ID |
-| `modeSeekerWins` | `{ ["normal"] = N, ... }` — seeker wins per mode |
-| `modeHiderSurvivals` | `{ ["normal"] = N, ... }` — survivals per mode |
+| `modeCounts` | `{ ["Mode Name"] = N }` — rounds per mode |
+| `modeSeekerWins` | `{ ["Mode Name"] = N }` — seeker wins per mode |
+| `modeHiderSurvivals` | `{ ["Mode Name"] = N }` — survivals per mode |
 
 ### Time
 | Stat | Notes |
@@ -233,7 +257,7 @@ Follower sees these again. The seeker keys will be the same, so `sameRound = tru
 `clearFound()` is NOT called — found list is preserved. The follower search timer is
 protected by the phase guard above.
 
-### "Play Again" feature (planned)
+### "Restart Round" feature
 A play-again action during REVEALING that reuses the same house, mode, and seeker must
 **always broadcast `[NHS] Round is over!` first**, even though a new round immediately follows.
 
@@ -293,10 +317,42 @@ If the timer was reset (re-sync guard worked), this may be slightly short — ac
 
 ## 9. Open Questions / TBD
 
-- **Display UI**: Stats will need a new tab or panel in the main frame. Layout TBD.
-- **Stats reset command**: Should there be a way to reset a character's stats (opt-in)? TBD.
-- **Follower house key sync**: Could broadcast a compact house key via addon message so followers get the full key. Out of scope for v1.
-- **`statsVersion` migration**: When new stat fields are added, `ensureCharStats()` adds them with
+- **`statsVersion` migration**: When new stat fields are added, `nhsEnsureCharStats()` adds them with
   zero defaults. No destructive migration needed for additive counters.
-- **Hot Potato initial role**: The initial "seeker" in Hot Potato starts the round as seeker — they should be counted as a seeker round. But the outcome stat is `hotPotatoLoss` (bad) vs. successfully passing the potato (good). Normal `seekerWins` / `hiderSurvivals` do not apply to Hot Potato rounds.
-- **Sardines "winner"**: The sardine (hider) wins if everyone joins. Seekers who find and join the sardine are not "losers." Only seekers who never find the sardine "fail." Track separately from normal seeker/hider win rates? TBD.
+- **Hot Potato initial role**: The initial "seeker" in Hot Potato starts the round as seeker — they should be counted as a seeker round. But the outcome stat is `hotPotatoLoss` (bad) vs. successfully passing the potato (good). Normal `seekerWins` / `hiderSurvivals` do not apply to Hot Potato rounds. `hotPotatoWins` also feeds `modeSeekerWins["hot_potato"]` for per-mode display.
+- **Sardines "winner"** (resolved): Sardine wins = time ran out before all seekers joined (`not allSeekersJoined`). This maps to `hiderSurvivals` (consistent with hider role across all modes). Seekers win if they found and joined the sardine (key is in `foundOrder`), incrementing `seekerWins` and `modeSeekerWins["sardines"]`. Seekers who never found the sardine get no win credit. Both counters feed into the generic `seekerWins` / `hiderSurvivals` totals.
+- **Unimplemented social stats**: `playerFoundByMe`, `playerFoundMe`, `uniquePlayersCount`, `uniqueHousesCount` were considered during design but not implemented in v1. If added later, `nhsEnsureCharStats()` can initialize them with zero defaults and the accumulator extended.
+
+---
+
+## 10. Display UI
+
+### Entry point
+"Your Stats" button (308×26) in the MainFrame History section, anchored between "Previous Rounds" and the "Previous Seekers / Previous Houses" row.
+
+### Frame (`Ui/StatsFrame.lua`)
+- `NHS.CreateStatsFrame()` returns `{ frame, refresh }` — same satellite-popup pattern as other history frames.
+- Frame: 320×460, draggable, position persisted in `NHSV.statsFramePoint`.
+- Scroll area: 288×370, set up with `NHS.SetupScrollFrameMouseWheel`.
+- Single `FontString` body inside a `ScrollFrame`, built fresh on each `refresh` call.
+- "Reset Stats" button (150×24) at `BOTTOM +0 +12` — always visible below the scroll area.
+- Integrated into `AnyMainFloatingPanelOpen`, `HideMainFloatingPanels`, and `RegisterEscapeProxyFrameHooks` in `MainFrameToggle.lua`.
+
+### Sections displayed (conditional — only shown when data exists)
+| Section | Source fields |
+|---|---|
+| Character name (header) | `NHS.LocalCharacterKey` via `Ambiguate` |
+| ROUNDS | `roundsPlayed`, `roundsAsSeeker`, `roundsAsHider` |
+| WINS & SURVIVALS | `seekerWins`, `hiderSurvivals`, `timesFirstFound`, `timesLastFound`, `hotPotatoWins`, `hotPotatoLosses` |
+| TIME | `secondsSearching`, `secondsHiding`, `totalSessionSeconds` |
+| SESSIONS | `sessionsStarted`, `sessionsCompleted` |
+| BY GAME MODE | `modeCounts` top 8, sorted by count |
+| BY NEIGHBORHOOD | `neighborhoodCounts` top 5, sorted by count |
+| BY HOUSE | `houseCounts` top 5; display via `NHSV.houseLabels[key]` with fallback to parsing the `\3`-delimited persistence key |
+| PLAYED WITH | `playerEncounters` top 8, sorted by count |
+
+### Reset Stats
+`StaticPopupDialogs["NHS_CONFIRM_RESET_STATS"]` registered at module scope in `StatsFrame.lua`.
+Clicking "Reset Stats" calls `StaticPopup_Show(...)` with the character's short name in the prompt.
+On confirm: `NHSV.charStats[charKey] = nil` — wipes the entire entry. `nhsEnsureCharStats` will
+re-initialize it from zeroes the next time a round is played.

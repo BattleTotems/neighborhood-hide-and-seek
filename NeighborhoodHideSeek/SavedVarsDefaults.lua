@@ -7,6 +7,9 @@ local NHS = NeighborhoodHideSeek
 
 local function ensureSavedVars()
   NHSV = NHSV or {}
+  if type(NHSV.charStats) ~= "table" then
+    NHSV.charStats = {}
+  end
   if NHSV.hideGroupFramesInSeeker == nil then
     NHSV.hideGroupFramesInSeeker = true
   end

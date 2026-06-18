@@ -73,11 +73,11 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local playAgainBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   playAgainBtn:SetSize(150, 24)
-  playAgainBtn:SetText("Play Again")
+  playAgainBtn:SetText("Restart Round")
   playAgainBtn:SetPoint("LEFT", endRoundBtn, "RIGHT", 8, 0)
   playAgainBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:SetText("Play Again")
+    GameTooltip:SetText("Restart Round")
     GameTooltip:AddLine("Restart with the same house, game mode, and seeker — skip straight to preparing.", nil, nil, nil, true)
     GameTooltip:Show()
   end)
@@ -462,10 +462,15 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   pastRoundsBtn:SetText("Previous Rounds")
   pastRoundsBtn:SetPoint("TOPLEFT", historySectionHdr, "BOTTOMLEFT", 0, -6)
 
+  local viewStatsBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  viewStatsBtn:SetSize(308, 26)
+  viewStatsBtn:SetText("Your Stats")
+  viewStatsBtn:SetPoint("TOPLEFT", pastRoundsBtn, "BOTTOMLEFT", 0, -8)
+
   local pastSeekersBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   pastSeekersBtn:SetSize(150, 26)
   pastSeekersBtn:SetText("Previous Seekers")
-  pastSeekersBtn:SetPoint("TOPLEFT", pastRoundsBtn, "BOTTOMLEFT", 0, -8)
+  pastSeekersBtn:SetPoint("TOPLEFT", viewStatsBtn, "BOTTOMLEFT", 0, -8)
 
   local pastHousesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   pastHousesBtn:SetSize(150, 26)
@@ -571,6 +576,10 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   local pastRoundsFrame = pastRoundsMod.frame
   local refreshPastRoundsPanel = pastRoundsMod.refresh
 
+  local statsMod = NHS.CreateStatsFrame()
+  local statsFrame = statsMod.frame
+  local refreshStatsPanel = statsMod.refresh
+
   local randomPickAnim = NHS.CreateRandomPickAnimationFrame()
   local randomPickFrame = randomPickAnim.frame
 
@@ -634,6 +643,15 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     else
       refreshGameplayPastHousesPanel()
       ghpf:Show()
+    end
+  end)
+
+  viewStatsBtn:SetScript("OnClick", function()
+    if statsFrame:IsShown() then
+      statsFrame:Hide()
+    else
+      refreshStatsPanel()
+      statsFrame:Show()
     end
   end)
 
@@ -1089,7 +1107,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     revealBtn:SetShown(showRevealPhaseRow)
 
     -- End Round is always visible in a session; disabled only during game mode selection.
-    -- Text changes to "Start Next Round" in Revealing (Play Again appears alongside it then).
+    -- Text changes to "Start Next Round" in Revealing.
     endRoundBtn:SetShown(sess)
     endRoundBtn:SetText(sess and State.phase == Phase.REVEALING and "Start Next Round" or "End Round")
     endRoundBtn:SetEnabled(mayAct and sess and State.phase ~= Phase.PICK_HOUSE)
@@ -1106,10 +1124,10 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     elseif showPlayAgain then
       endRoundBtn:ClearAllPoints()
       endRoundBtn:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -8)
-      endRoundBtn:SetSize(150, 24)
+      endRoundBtn:SetSize(308, 24)
       playAgainBtn:ClearAllPoints()
-      playAgainBtn:SetPoint("LEFT", endRoundBtn, "RIGHT", 8, 0)
-      playAgainBtn:SetSize(150, 24)
+      playAgainBtn:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", 0, -8)
+      playAgainBtn:SetSize(308, 24)
     else
       endRoundBtn:ClearAllPoints()
       endRoundBtn:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -8)
@@ -1408,8 +1426,8 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
             anchor = searchCustomSecEdit
           elseif showHidePhaseRow then
             anchor = hideCustomSecEdit
-          else -- Revealing: no timer controls, house section hidden; End Round is the only element.
-            anchor = endRoundBtn
+          else -- Revealing: no timer controls, house section hidden.
+            anchor = showPlayAgain and playAgainBtn or endRoundBtn
           end
         elseif pickGameMode then
           anchor = gameModeRandomBtn
@@ -1755,6 +1773,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     State.gameLockedHouseDisplay = State.gameHouseCandidateDisplay
     State.gameHouseCandidateKey = nil
     State.gameHouseCandidateDisplay = nil
+    if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
     State.phase = Phase.PICK_GAME_MODE
     if IsInGroup() and B.nhsIsRoundLeader() then
       B.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, nil, State.gameLockedHouseKey)
@@ -2074,6 +2093,17 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   pastRoundsFrame:SetFrameLevel(206)
   pastRoundsFrame:SetToplevel(true)
 
+  statsFrame:ClearAllPoints()
+  if NHSV.statsFramePoint then
+    local sp = NHSV.statsFramePoint
+    statsFrame:SetPoint(sp[1], UIParent, sp[2], sp[3], sp[4])
+  else
+    statsFrame:SetPoint("LEFT", f, "RIGHT", 16, 0)
+  end
+  statsFrame:SetFrameStrata("DIALOG")
+  statsFrame:SetFrameLevel(206)
+  statsFrame:SetToplevel(true)
+
   gsfp:ClearAllPoints()
   if NHSV.gameplaySeekerPickFramePoint then
     local sp = NHSV.gameplaySeekerPickFramePoint
@@ -2102,6 +2132,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   UI.gameplayHousePickFrame = ghfp
   UI.gameplayPastHousesFrame = ghpf
   UI.gameplayPastRoundsFrame = pastRoundsFrame
+  UI.statsFrame = statsFrame
   UI.gameplaySeekerPickFrame = gsfp
   UI.gameplayRandomPickFrame = randomPickFrame
   UI.howToPlayFrame = htpf

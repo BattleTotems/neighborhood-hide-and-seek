@@ -131,3 +131,63 @@ Game Modes:
 
   Excluded from pool:
   (none currently)
+
+- Cursed & Seek (working title) — Each hider is assigned a random visual effect role at round
+  start. The effect runs persistently on their client for the full hiding phase, impairing their
+  ability to navigate and find a good spot. When the seeker finds a hider, that hider's effect
+  transfers immediately to the seeker's client and stays until they find the next hider, at which
+  point it is replaced. The final hider's effect fires on the seeker as normal but the round ends
+  immediately after, so it has no practical impact.
+
+  Effects are assigned without replacement per round — no two hiders share the same effect.
+  Where pool size allows, prevent the seeker from receiving the same effect back-to-back across
+  consecutive finds.
+
+  Hiders are told their assigned effect at round start. The seeker is notified that an effect is
+  incoming on each find, but not which one until it applies.
+
+  No button or cooldown mechanic — effects are passive and automatic. This mode is self-contained
+  and does not interact with the Toy & Seek toy pool or hindrance system.
+
+  ---
+
+  Visual effects (all applied via persistent full-screen addon UI frames):
+
+  1. Spotlight — black full-screen overlay with a small transparent circle centred on screen.
+     Achievable by layering two frames with a gap, or via stencil mask. Circle radius to be
+     determined by playtesting; too small is unplayable, too large is trivial. (Needs
+     implementation testing for the cutout approach.)
+
+  2. Tunnel vision — heavy vignette frame that crushes the outer edges of the screen down to a
+     narrow central band. Less severe than Spotlight; still meaningfully restricts peripheral
+     awareness.
+
+  3. Colour tint — strong persistent single-colour overlay (red, deep blue, or green). Related to
+     the Toy & Seek tint hindrance but runs for the full phase rather than flashing and fading.
+
+  4. Static noise — semi-transparent animated noise/static texture tiled across the screen.
+     Requires an animated texture or frame animation built from static assets; confirm feasibility
+     at implementation.
+
+  5. Locked close camera — forces camera distance to minimum for the phase. (Needs testing;
+     CameraZoomIn() may conflict with combat lockdown or player override.)
+
+  6. Locked far camera — forces camera distance to maximum for the phase. Same lockdown caveat
+     as above.
+
+  7. Distraction overlay — a large absurd image pinned to the centre of the screen, partially
+     obscuring central vision. Can reuse art assets from the Toy & Seek silly art popup pool to
+     avoid duplicating work.
+
+  8. High contrast — black and white desaturation overlay. Removes colour information from the
+     visible scene without fully blocking vision.
+
+  ---
+
+  Open questions:
+  - Final name. "Cursed & Seek" is a placeholder.
+  - Minimum player count before the effect pool has to wrap. With 8 effects and e.g. 4 hiders,
+    only 4 effects fire per round — decide whether unused effects rotate in next round or stay
+    fully random each time.
+  - Whether to weight effect assignment so the harshest effects (Spotlight, Locked close camera)
+    are rarer, or keep it fully random as a chaos feature.

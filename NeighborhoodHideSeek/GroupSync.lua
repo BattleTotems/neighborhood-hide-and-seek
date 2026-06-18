@@ -27,7 +27,7 @@ local NHS_MSG_REVEALING = "[NHS] The Revealing Begins!"
 local NHS_MSG_NP_NEAREST = "[NHS] NP Nearest: "
 local NHS_MSG_HIDER_READY = "[NHS] Hider Ready: "
 local NHS_MSG_SARDINE_JOIN = "[NHS] Sardine: "
-local NHS_MSG_HP_SWAP = "[NHS] HP Swap: "
+local NHS_MSG_HP_SWAP = "[NHS] Seeker Swap: "
 -- Separator embedded in the addon-only house payload to carry both key and display in one message.
 -- \31 (unit separator) is safe in addon messages and never appears in house names or persistence keys.
 local NHS_HOUSE_KEY_SEP = "\31"
@@ -277,6 +277,7 @@ local function nhsRemoteFollowerSyncRoundState(keysStr, phase)
   for _, k in ipairs(keys) do
     C.State.remoteSeekerKeys[#C.State.remoteSeekerKeys + 1] = k
   end
+  if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
   C.State.phase = phase
 end
 
@@ -297,6 +298,7 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
           C.State.remoteSessionActive = true
           wipe(C.State.remoteSeekerKeys)
           C.State.remoteSeekerKeys[1] = m.key
+          if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
           C.State.phase = Phase.SEARCHING
           break
         end
@@ -523,7 +525,7 @@ end
 
 -- Hot Potato: seeker tagged a hider, they swap roles.
 local function nhsApplyHotPotatoSwap(senderName, text)
-  local body = text:match("^%[NHS%] HP Swap:%s*(.+)%s*$")
+  local body = text:match("^%[NHS%] Seeker Swap:%s*(.+)%s*$")
   if not body then return false end
   if C.State.phase ~= Phase.SEARCHING then return true end
   if not C.nhsChatSenderIsDesignatedSeeker(senderName) then return true end
@@ -614,12 +616,18 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
         for _, k in ipairs(keys) do
           C.State.remoteSeekerKeys[#C.State.remoteSeekerKeys + 1] = k
         end
+        if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
         C.State.phase = Phase.PENDING
         local seekerDisplayNames = {}
         for _, k in ipairs(keys) do
           seekerDisplayNames[#seekerDisplayNames + 1] = Ambiguate(k, "short")
         end
         C.State.gameSeekerHistory[#C.State.gameSeekerHistory + 1] = table.concat(seekerDisplayNames, ", ")
+        -- Snapshot initial seeker keys so stats accumulation at ROUND_OVER reflects original roles.
+        wipe(C.State.gameRoundInitialSeekerKeys)
+        for _, k in ipairs(keys) do
+          C.State.gameRoundInitialSeekerKeys[#C.State.gameRoundInitialSeekerKeys + 1] = k
+        end
       end
     end
   elseif text:match("^%[NHS%]%s*Game mode:%s*.+") then
@@ -629,6 +637,7 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       if NHS.IsValidGameMode and NHS.IsValidGameMode(modeId) then
         C.State.remoteSessionActive = true
         C.State.remoteGameMode = modeId
+        if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
         C.State.phase = Phase.PICK_SEEKER
         -- Toy & Seek: follower triggers ownership broadcast so pool can be computed.
         if modeId == "toy_and_seek" and C.nhsTASOnModeSelected then
@@ -648,9 +657,16 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     end
     C.State.remoteHouseDisplay = nil
     C.State.remoteHouseKey = nil
+    if NHS.RecordSessionStart then NHS.RecordSessionStart() end
   elseif text:match("^%[NHS%]%s*House:%s*.+") then
     local housePart = text:match("^%[NHS%]%s*House:%s*(.+)%s*$")
     if housePart then
+      -- Count as a session for players who join after the session-start broadcast.
+      if not C.State.remoteSessionActive then
+        if NHS.RecordSessionStart then NHS.RecordSessionStart() end
+      else
+        if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
+      end
       C.State.remoteSessionActive = true
       C.State.phase = Phase.PICK_GAME_MODE
       C.State.remoteGameMode = nil
@@ -677,15 +693,25 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     nhsClearRemoteRoundSync()
     C.State.remoteHouseDisplay = nil
     C.State.remoteHouseKey = nil
+    if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
     C.State.phase = Phase.PICK_HOUSE
     C.State.remoteGameMode = nil
+    C.State.followerSearchPhaseStartTime = nil
+    wipe(C.State.gameRoundInitialSeekerKeys)
     if C.State.seekerMode and NHS.SetSeekerMode then
       NHS.SetSeekerMode(false)
     end
   elseif text:match("^%[NHS%]%s*Game Over! Thanks for playing!%s*$") then
+    -- Snapshot before archiving so sessions ended mid-round (e.g. during Revealing) capture
+    -- the last round. ArchiveCompletedPastRoundsForReload saves pastRounds to NHSV, so the
+    -- snapshot must be appended first.
+    C.nhsAppendPastRoundSnapshotIfActiveRound()
     if NHS.ArchiveCompletedPastRoundsForReload then
       NHS.ArchiveCompletedPastRoundsForReload()
     end
+    if NHS.EndPhaseClock then NHS.EndPhaseClock() end
+    C.State.followerSearchPhaseStartTime = nil
+    wipe(C.State.gameRoundInitialSeekerKeys)
     C.State.remoteSessionActive = false
     C.State.phase = Phase.NONE
     wipe(C.State.gameSeekerHistory)
@@ -708,6 +734,7 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     elseif text:match("^%[NHS%]%s*Hiding Starts Now%s*$") then
       C.State.remoteSessionActive = true
       if IsRoundPhase(C.State.phase) then
+        if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
         C.State.phase = Phase.HIDING
         if NHS.PlayHidingPhaseStartSound then
           NHS.PlayHidingPhaseStartSound()
@@ -718,15 +745,24 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       if seekKey then
         wipe(C.State.hiderReadySet)
         nhsRemoteFollowerSyncRoundState(seekKey, Phase.SEARCHING)
+        -- Start timer only on first receipt; re-syncs (same round still SEARCHING) are no-ops.
+        if C.State.phase == Phase.SEARCHING and not C.State.followerSearchPhaseStartTime then
+          C.State.followerSearchPhaseStartTime = GetTime()
+        end
       elseif text:match("^%[NHS%]%s*The Seeking Begins!%s*$") then
         C.State.remoteSessionActive = true
         if IsRoundPhase(C.State.phase) then
           wipe(C.State.hiderReadySet)
+          if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
           C.State.phase = Phase.SEARCHING
+        end
+        if C.State.phase == Phase.SEARCHING and not C.State.followerSearchPhaseStartTime then
+          C.State.followerSearchPhaseStartTime = GetTime()
         end
       elseif text:match("^%[NHS%]%s*The Revealing Begins!%s*$") then
         C.State.remoteSessionActive = true
         if IsRoundPhase(C.State.phase) then
+          if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
           C.State.phase = Phase.REVEALING
           if C.State.seekerMode and NHS.SetSeekerMode then
             NHS.SetSeekerMode(false)

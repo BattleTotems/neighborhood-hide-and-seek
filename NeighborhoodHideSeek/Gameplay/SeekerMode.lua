@@ -173,9 +173,6 @@ local function setSeekerMode(enabled)
     end
     hideAllNameplates()
     seekerUiSuppressStart()
-    if not InCombatLockdown() then
-      ClearTarget()
-    end
     if NHS.ShowSeekerModeEngagedDialog then
       NHS.ShowSeekerModeEngagedDialog()
     end
@@ -238,9 +235,6 @@ local function nhsSeekerAutoModeSyncToPhase()
     return
   end
   if State.seekerMode then
-    if not InCombatLockdown() then
-      ClearTarget()
-    end
     return
   end
   setSeekerMode(true)
