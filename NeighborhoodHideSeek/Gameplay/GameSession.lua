@@ -234,10 +234,22 @@ local function nhsRestoreFoundFromSnapshot(list)
   if type(list) ~= "table" then
     return
   end
+  -- Hot Potato adds passers to foundOrder but never to foundSet during live play.
+  -- Restoring foundSet from foundOrder would incorrectly block tags and empty the
+  -- hidden list after a /reload, so skip it for hot_potato.
+  local isHotPotato = (State.gameMode == "hot_potato") or (State.remoteGameMode == "hot_potato")
+  local seen = isHotPotato and {} or nil
   for _, k in ipairs(list) do
-    if type(k) == "string" and k ~= "" and not State.foundSet[k] then
-      State.foundSet[k] = true
-      State.foundOrder[#State.foundOrder + 1] = k
+    if type(k) == "string" and k ~= "" then
+      if isHotPotato then
+        if not seen[k] then
+          seen[k] = true
+          State.foundOrder[#State.foundOrder + 1] = k
+        end
+      elseif not State.foundSet[k] then
+        State.foundSet[k] = true
+        State.foundOrder[#State.foundOrder + 1] = k
+      end
     end
   end
 end
@@ -360,6 +372,7 @@ local function nhsPersistGameSessionToSaved()
       seekerHistory = seekHist,
       foundOrder = foundSnap,
       pastRounds = pastSnap,
+      hotPotatoTaggedBy = State.hotPotatoTaggedBy or nil,
     }
     return
   end
@@ -433,6 +446,7 @@ local function nhsHydrateGameSessionFromSaved()
     end
     nhsRestoreFoundFromSnapshot(s.foundOrder)
     nhsRestorePastRoundsFromSave(s.pastRounds)
+    State.hotPotatoTaggedBy = (type(s.hotPotatoTaggedBy) == "string" and s.hotPotatoTaggedBy ~= "") and s.hotPotatoTaggedBy or nil
     State.gameHouseCandidateKey = nil
     State.gameHouseCandidateDisplay = nil
     State.gameLockedHouseKey = nil

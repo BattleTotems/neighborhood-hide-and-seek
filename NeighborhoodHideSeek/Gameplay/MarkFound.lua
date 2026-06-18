@@ -152,6 +152,13 @@ local function markTargetFound(opts)
     State.foundOrder[#State.foundOrder + 1] = myKey
     wipe(State.gameLockedSeekerKeys)
     State.gameLockedSeekerKeys[1] = key
+    -- Follower seekers: mirror the swap into remoteSeekerKeys so the echo-back dedup
+    -- in nhsApplyHotPotatoSwap (oldSeekerKey == newSeekerKey) fires correctly and
+    -- avoids adding the passer to foundOrder a second time.
+    if State.remoteSessionActive then
+      wipe(State.remoteSeekerKeys)
+      State.remoteSeekerKeys[1] = key
+    end
     State.hotPotatoTaggedBy = myKey
     -- All players stay in seeker mode throughout Hot Potato; no transition needed here.
     print(("|cff88ff88[NHS]|r Hot Potato! %s is now the seeker."):format(disp))

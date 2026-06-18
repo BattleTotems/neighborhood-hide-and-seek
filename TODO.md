@@ -8,7 +8,4 @@ Ideas:
 
 
 TO be tested:
-- sardines
-- hot potato (/reload breaks seeker) (/reload resets the seeker list to remove duplicates)
-- update bloodhound a bit, maybe colored arrow, or maybe the player gets a raid marker above their head 
 - unselecting recent rounds between reloads or transitions
