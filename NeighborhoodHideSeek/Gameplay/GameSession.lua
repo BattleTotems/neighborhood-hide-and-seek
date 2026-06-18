@@ -326,6 +326,8 @@ local function nhsPersistGameSessionToSaved()
     for i, k in ipairs(State.gameCandidateKeys) do candidateKeySnap[i] = k end
     local lockedKeySnap = {}
     for i, k in ipairs(State.gameLockedSeekerKeys) do lockedKeySnap[i] = k end
+    local recentSnap = {}
+    for i, v in ipairs(State.recentlyPlayedModes) do recentSnap[i] = v end
     NHSV.gameRounds = {
       sessionActive = true,
       clientMode = "leader",
@@ -346,6 +348,7 @@ local function nhsPersistGameSessionToSaved()
       foundOrder = foundSnap,
       pastRounds = pastSnap,
       hotPotatoTaggedBy = State.hotPotatoTaggedBy or nil,
+      recentlyPlayedModes = recentSnap,
     }
     return
   end
@@ -559,6 +562,10 @@ local function nhsHydrateGameSessionFromSaved()
   end
   State.gameLockedHiderKey = (type(s.lockedHiderKey) == "string" and s.lockedHiderKey ~= "") and s.lockedHiderKey or nil
   State.hotPotatoTaggedBy = (type(s.hotPotatoTaggedBy) == "string" and s.hotPotatoTaggedBy ~= "") and s.hotPotatoTaggedBy or nil
+  wipe(State.recentlyPlayedModes)
+  for i, v in ipairs(s.recentlyPlayedModes or {}) do
+    State.recentlyPlayedModes[i] = v
+  end
   nhsRestoreFoundFromSnapshot(s.foundOrder)
   nhsRestorePastRoundsFromSave(s.pastRounds)
   NHS.SessionHudUpdate()
