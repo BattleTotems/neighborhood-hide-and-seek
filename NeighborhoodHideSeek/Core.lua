@@ -226,7 +226,11 @@ loader:SetScript("OnEvent", function(_, event, name)
     )
     wasInGroup = IsInGroup()
   elseif event == "PLAYER_ENTERING_WORLD" then
-    if not NeighborhoodHideSeek.LocalCharacterKey then
+    do
+      -- Re-derive unconditionally: on a fresh login UnitFullName may return an empty
+      -- realm during ADDON_LOADED (name cache not ready), so the key set there could
+      -- be "PlayerName" instead of "PlayerName-Realm".  By PLAYER_ENTERING_WORLD the
+      -- cache is always populated, so this corrects any realm-less key from ADDON_LOADED.
       local pName, pRealm = UnitFullName("player")
       if pName and pName ~= "" then
         NeighborhoodHideSeek.LocalCharacterKey = (pRealm and pRealm ~= "") and (pName .. "-" .. pRealm) or pName
