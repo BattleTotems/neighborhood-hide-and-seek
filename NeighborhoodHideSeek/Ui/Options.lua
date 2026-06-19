@@ -13,7 +13,7 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
   end
 
   local optf = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-  optf:SetSize(340, 410)
+  optf:SetSize(340, 540)
   optf:SetClampedToScreen(true)
   optf:SetMovable(true)
   optf:EnableMouse(true)
@@ -74,10 +74,21 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
   cbMinimapLauncherText:SetJustifyH("LEFT")
   cbMinimapLauncherText:SetText("Show minimap launcher button")
 
+  local gameModeDefaultsBtn = CreateFrame("Button", nil, optf, "UIPanelButtonTemplate")
+  gameModeDefaultsBtn:SetSize(300, 26)
+  gameModeDefaultsBtn:SetPoint("TOPLEFT", cbMinimapLauncher, "BOTTOMLEFT", -4, -10)
+  gameModeDefaultsBtn:SetText("Game Mode Defaults...")
+
+  local gameModeDefaultsHint = optf:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  gameModeDefaultsHint:SetPoint("TOPLEFT", gameModeDefaultsBtn, "BOTTOMLEFT", 4, -4)
+  gameModeDefaultsHint:SetWidth(296)
+  gameModeDefaultsHint:SetJustifyH("LEFT")
+  gameModeDefaultsHint:SetText("Configure which modes are included in Random by default.")
+
   local optMidSep = optf:CreateTexture(nil, "ARTWORK", nil, 1)
   optMidSep:SetColorTexture(1, 1, 1, 0.12)
   optMidSep:SetSize(300, 1)
-  optMidSep:SetPoint("TOPLEFT", cbMinimapLauncherText, "BOTTOMLEFT", -26, -14)
+  optMidSep:SetPoint("TOPLEFT", gameModeDefaultsHint, "BOTTOMLEFT", 0, -10)
 
   local optSeekerHeader = optf:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   optSeekerHeader:SetPoint("TOPLEFT", optMidSep, "BOTTOMLEFT", 0, -10)
@@ -176,6 +187,27 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
     NHSV.suppressSeekerModeDialog = false
   end)
 
+  local optVersionSep = optf:CreateTexture(nil, "ARTWORK", nil, 1)
+  optVersionSep:SetColorTexture(1, 1, 1, 0.12)
+  optVersionSep:SetSize(300, 1)
+  optVersionSep:SetPoint("TOPLEFT", optResetDialogBtn, "BOTTOMLEFT", 0, -10)
+
+  local optVersionCheckBtn = CreateFrame("Button", nil, optf, "UIPanelButtonTemplate")
+  optVersionCheckBtn:SetSize(300, 26)
+  optVersionCheckBtn:SetPoint("TOPLEFT", optVersionSep, "BOTTOMLEFT", 0, -8)
+  optVersionCheckBtn:SetText("Check Group Versions")
+  optVersionCheckBtn:SetScript("OnClick", function()
+    if NHS.VersionCheck and NHS.VersionCheck.TriggerCheck then
+      NHS.VersionCheck.TriggerCheck()
+    end
+  end)
+
+  local optVersionCheckHint = optf:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  optVersionCheckHint:SetPoint("TOPLEFT", optVersionCheckBtn, "BOTTOMLEFT", 4, -4)
+  optVersionCheckHint:SetWidth(296)
+  optVersionCheckHint:SetJustifyH("LEFT")
+  optVersionCheckHint:SetText("Check that all party members have the same addon version.")
+
   local optCloseBtn = CreateFrame("Button", nil, optf, "UIPanelCloseButton")
   optCloseBtn:SetPoint("TOPRIGHT", -6, -6)
   optCloseBtn:SetScript("OnClick", function()
@@ -186,5 +218,6 @@ function NeighborhoodHideSeek.CreateOptionsFrame()
   return {
     frame = optf,
     syncFromSaved = syncSeekerUiOptionsFromSaved,
+    gameModeDefaultsBtn = gameModeDefaultsBtn,
   }
 end

@@ -74,6 +74,7 @@ local State = {
   gameHouseCandidateDisplay = nil,
   gameLockedHouseKey = nil,
   gameLockedHouseDisplay = nil,
+  gameLastRoundHouseKey = nil,  -- previous round's locked house key; used to detect subdivision/neighborhood changes
   gameLockedHouseLiveEntry = nil,
   gameLockedHouseLiveIndex = nil,
   gameHouseRotationUsed = {},
@@ -83,8 +84,10 @@ local State = {
   gameLockedHiderKey = nil,  -- hider mode only: key of the confirmed hider (set on round start, committed to rotation on HIDING)
   gameSeekerHistory = {},
   gameRotationUsed = {},
-  -- Follower: last house line from leader addon sync (same text may appear in party/raid when out of combat).
+  -- Follower: house data from leader addon sync. remoteHouseKey is the persistence key (new format);
+  -- remoteHouseDisplay is the human-readable name. Both nil until a House message is received.
   remoteHouseDisplay = nil,
+  remoteHouseKey = nil,
   -- Round flow: leader/seeker addon messages; optional party/raid chat for players when not in combat lockdown.
   remoteSeekerKeys = {},     -- follower mirror of leader's seeker key list for this round
   -- Follower: leader sent "[NHS] Game session started" (stays true until Game Over chat).
@@ -101,14 +104,45 @@ local State = {
   searchPhaseDuration = nil,
   -- Hiders who clicked "I'm Hidden!" during the hiding phase (keys = Ambiguate(..., "none")).
   hiderReadySet = {},
+  -- Last 2 game modes played this session (most recent first); used to default their checkboxes off.
+  recentlyPlayedModes = {},
+  -- Hot Potato: key of the player who tagged the current seeker; they cannot be tagged back.
+  hotPotatoTaggedBy = nil,
+  -- Stats: initial seeker keys for the current round (leader: set at HIDING/SEARCHING; follower: set at Round Start).
+  -- Read by nhsAccumulateRoundStats at round end to determine original roles before any mid-round swaps.
+  gameRoundInitialSeekerKeys = {},
+  -- Follower: GetTime() when the current round's SEARCHING message was first received (for secondsHiding/secondsSearching).
+  -- Guarded on receipt so re-syncs do not reset the timer. Cleared at ROUND_OVER and GAME_OVER.
+  followerSearchPhaseStartTime = nil,
+  -- Leader: GetTime() when SEARCHING phase started, not reset by Overtime +time adjustments (unlike searchPhaseStartTime).
+  searchPhaseOriginalStartTime = nil,
+  -- Unix timestamp (time()) of the most recent phase start. Flushed to totalSessionSeconds at every
+  -- phase transition; cleared at session end. Losing this on logout only drops the current phase's time.
+  statsPhaseStartTime = nil,
+  -- Per-round time tracking for role-aware search stats and finding-spot stat.
+  -- hidingSpotStartTime: GetTime() when hider entered hiding phase; cleared on "I'm Hidden" or SEARCHING start.
+  hidingSpotStartTime = nil,
+  -- hidingSpotTrackedForRound: true once HIDING phase has been processed for this round; prevents re-sync restarts.
+  hidingSpotTrackedForRound = false,
+  -- searchRoleStartTime: GetTime() when local player's current role began during search phase.
+  searchRoleStartTime = nil,
+  -- searchRoleIsSeeker: whether the active search-role period is as a seeker (vs hider).
+  searchRoleIsSeeker = false,
+  -- Round-level accumulators; flushed into charStats at round end by nhsAccumulateRoundStats.
+  roundSearchingSeconds = 0,
+  roundHidingSeconds = 0,
+  roundFindingSpotSeconds = 0,
 }
 
 NeighborhoodHideSeek.State = State
+-- Stable "Name-Realm" key for the logged-in character; set at ADDON_LOADED. Used to key NHSV.charStats.
+NeighborhoodHideSeek.LocalCharacterKey = nil
 
 local function clearFound()
   wipe(State.foundOrder)
   wipe(State.foundSet)
   wipe(State.hiderReadySet)
+  State.hotPotatoTaggedBy = nil
 end
 
 -- --- Game rounds (party/raid leader) ----------------------------------------
@@ -165,6 +199,7 @@ local function nhsSyncGroupLeaveCleanup()
     State.remoteSessionActive = false
     State.remoteGameMode = nil
     State.remoteHouseDisplay = nil
+    State.remoteHouseKey = nil
     State.phase = Phase.NONE
   end
 
@@ -180,6 +215,12 @@ loader:RegisterEvent("GROUP_ROSTER_UPDATE")
 loader:RegisterEvent("PARTY_LEADER_CHANGED")
 loader:SetScript("OnEvent", function(_, event, name)
   if event == "ADDON_LOADED" and name == ADDON_NAME then
+    do
+      local pName, pRealm = UnitFullName("player")
+      if pName and pName ~= "" then
+        NeighborhoodHideSeek.LocalCharacterKey = (pRealm and pRealm ~= "") and (pName .. "-" .. pRealm) or pName
+      end
+    end
     NeighborhoodHideSeek.EnsureSavedVars()
     NeighborhoodHideSeek.InitSessionHud()
     NeighborhoodHideSeek.HydrateGameSessionFromSaved()
@@ -198,6 +239,16 @@ loader:SetScript("OnEvent", function(_, event, name)
     )
     wasInGroup = IsInGroup()
   elseif event == "PLAYER_ENTERING_WORLD" then
+    do
+      -- Re-derive unconditionally: on a fresh login UnitFullName may return an empty
+      -- realm during ADDON_LOADED (name cache not ready), so the key set there could
+      -- be "PlayerName" instead of "PlayerName-Realm".  By PLAYER_ENTERING_WORLD the
+      -- cache is always populated, so this corrects any realm-less key from ADDON_LOADED.
+      local pName, pRealm = UnitFullName("player")
+      if pName and pName ~= "" then
+        NeighborhoodHideSeek.LocalCharacterKey = (pRealm and pRealm ~= "") and (pName .. "-" .. pRealm) or pName
+      end
+    end
     NeighborhoodHideSeek.EnsureSavedVars()
     NeighborhoodHideSeek.InitSessionHud()
     NeighborhoodHideSeek.InitMinimapButton()
@@ -231,6 +282,15 @@ loader:SetScript("OnEvent", function(_, event, name)
     end
   elseif event == "GROUP_ROSTER_UPDATE" or event == "PARTY_LEADER_CHANGED" then
     nhsSyncGroupLeaveCleanup()
+    if NeighborhoodHideSeek.LeaderHiderModeAddLateJoiners then
+      NeighborhoodHideSeek.LeaderHiderModeAddLateJoiners()
+    end
+    -- Re-entering follower fires PLAYER_ENTERING_WORLD first (re-registering their prefix),
+    -- then the leader sees GROUP_ROSTER_UPDATE — so the rebroadcast arrives after the
+    -- follower is ready to receive it.
+    if NeighborhoodHideSeek.GroupSync and NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded then
+      NeighborhoodHideSeek.GroupSync.LeaderRebroadcastActiveRoundPhaseIfNeeded()
+    end
     if UI.RefreshAll then
       UI.RefreshAll()
     elseif UI.RefreshGameRounds then

@@ -234,10 +234,22 @@ local function nhsRestoreFoundFromSnapshot(list)
   if type(list) ~= "table" then
     return
   end
+  -- Hot Potato adds passers to foundOrder but never to foundSet during live play.
+  -- Restoring foundSet from foundOrder would incorrectly block tags and empty the
+  -- hidden list after a /reload, so skip it for hot_potato.
+  local isHotPotato = (State.gameMode == "hot_potato") or (State.remoteGameMode == "hot_potato")
+  local seen = isHotPotato and {} or nil
   for _, k in ipairs(list) do
-    if type(k) == "string" and k ~= "" and not State.foundSet[k] then
-      State.foundSet[k] = true
-      State.foundOrder[#State.foundOrder + 1] = k
+    if type(k) == "string" and k ~= "" then
+      if isHotPotato then
+        if not seen[k] then
+          seen[k] = true
+          State.foundOrder[#State.foundOrder + 1] = k
+        end
+      elseif not State.foundSet[k] then
+        State.foundSet[k] = true
+        State.foundOrder[#State.foundOrder + 1] = k
+      end
     end
   end
 end
@@ -314,6 +326,8 @@ local function nhsPersistGameSessionToSaved()
     for i, k in ipairs(State.gameCandidateKeys) do candidateKeySnap[i] = k end
     local lockedKeySnap = {}
     for i, k in ipairs(State.gameLockedSeekerKeys) do lockedKeySnap[i] = k end
+    local recentSnap = {}
+    for i, v in ipairs(State.recentlyPlayedModes) do recentSnap[i] = v end
     NHSV.gameRounds = {
       sessionActive = true,
       clientMode = "leader",
@@ -333,6 +347,8 @@ local function nhsPersistGameSessionToSaved()
       rotationKeys = rotKeys,
       foundOrder = foundSnap,
       pastRounds = pastSnap,
+      hotPotatoTaggedBy = State.hotPotatoTaggedBy or nil,
+      recentlyPlayedModes = recentSnap,
     }
     return
   end
@@ -359,6 +375,7 @@ local function nhsPersistGameSessionToSaved()
       seekerHistory = seekHist,
       foundOrder = foundSnap,
       pastRounds = pastSnap,
+      hotPotatoTaggedBy = State.hotPotatoTaggedBy or nil,
     }
     return
   end
@@ -432,6 +449,7 @@ local function nhsHydrateGameSessionFromSaved()
     end
     nhsRestoreFoundFromSnapshot(s.foundOrder)
     nhsRestorePastRoundsFromSave(s.pastRounds)
+    State.hotPotatoTaggedBy = (type(s.hotPotatoTaggedBy) == "string" and s.hotPotatoTaggedBy ~= "") and s.hotPotatoTaggedBy or nil
     State.gameHouseCandidateKey = nil
     State.gameHouseCandidateDisplay = nil
     State.gameLockedHouseKey = nil
@@ -543,6 +561,11 @@ local function nhsHydrateGameSessionFromSaved()
     State.gameRotationUsed[k] = true
   end
   State.gameLockedHiderKey = (type(s.lockedHiderKey) == "string" and s.lockedHiderKey ~= "") and s.lockedHiderKey or nil
+  State.hotPotatoTaggedBy = (type(s.hotPotatoTaggedBy) == "string" and s.hotPotatoTaggedBy ~= "") and s.hotPotatoTaggedBy or nil
+  wipe(State.recentlyPlayedModes)
+  for i, v in ipairs(s.recentlyPlayedModes or {}) do
+    State.recentlyPlayedModes[i] = v
+  end
   nhsRestoreFoundFromSnapshot(s.foundOrder)
   nhsRestorePastRoundsFromSave(s.pastRounds)
   NHS.SessionHudUpdate()
@@ -552,6 +575,16 @@ local function nhsHydrateGameSessionFromSaved()
 end
 
 local function nhsResetGameSession()
+  State.statsPhaseStartTime = nil  -- nhsEndPhaseClock() already flushed before this is called
+  State.hidingSpotStartTime = nil
+  State.hidingSpotTrackedForRound = false
+  State.searchRoleStartTime = nil
+  State.roundSearchingSeconds = 0
+  State.roundHidingSeconds = 0
+  State.roundFindingSpotSeconds = 0
+  if NHS.ClearRevealMarkers then
+    NHS.ClearRevealMarkers()
+  end
   nhsStopPartyCountdown()
   nhsLeaderDemoteSeekerAssistantIfWePromoted()
   State.gameSessionActive = false
@@ -561,17 +594,23 @@ local function nhsResetGameSession()
   State.gameHouseCandidateDisplay = nil
   State.gameLockedHouseKey = nil
   State.gameLockedHouseDisplay = nil
+  State.gameLastRoundHouseKey = nil
   State.gameLockedHouseLiveEntry = nil
   State.gameLockedHouseLiveIndex = nil
   wipe(State.gameHouseHistory)
   wipe(State.gameHouseRotationUsed)
   State.remoteHouseDisplay = nil
+  State.remoteHouseKey = nil
+  wipe(State.gameRoundInitialSeekerKeys)
+  State.followerSearchPhaseStartTime = nil
+  State.searchPhaseOriginalStartTime = nil
   wipe(State.gameCandidateKeys)
   wipe(State.gameLockedSeekerKeys)
   State.gameLockedHiderKey = nil
   wipe(State.gameSeekerHistory)
   wipe(State.gameRotationUsed)
   wipe(State.remoteSeekerKeys)
+  wipe(State.recentlyPlayedModes)
   State.remoteSessionActive = false
   if NHS.ClearRoundGameMode then
     NHS.ClearRoundGameMode()
@@ -842,7 +881,7 @@ local function nhsPastRoundHouseAndKey()
     return State.gameLockedHouseDisplay, State.gameLockedHouseKey
   end
   if State.remoteSessionActive and IsRoundPhase(State.phase) and State.remoteHouseDisplay and State.remoteHouseDisplay ~= "" then
-    return State.remoteHouseDisplay, nil
+    return State.remoteHouseDisplay, State.remoteHouseKey
   end
   return nil, nil
 end
@@ -858,6 +897,7 @@ local function nhsAppendPastRoundSnapshotIfActiveRound()
   if not State.gameSessionActive and not State.remoteSessionActive then
     return
   end
+  NHS.AccumulateRoundStats()
   local houseDisp = nhsPastRoundHouseAndKey()
   if not houseDisp or houseDisp == "" then
     houseDisp = "—"
@@ -875,6 +915,10 @@ local function nhsAppendPastRoundSnapshotIfActiveRound()
     hidden = nhsPastRoundHiddenSnapshotString(seekerKeys),
     found = nhsPastRoundFoundSnapshotString(),
   }
+  if NHS.LiveRefreshIfOpen then
+    NHS.LiveRefreshIfOpen("rounds")
+    NHS.LiveRefreshIfOpen("stats")
+  end
 end
 
 -- Toggle with /nhs debugfound or /run NeighborhoodHideSeek.debugFoundSync=true
@@ -939,6 +983,638 @@ if NHS.debugSync == nil then
 end
 NHS.DebugDumpFoundSyncState = nhsDebugFoundSyncDump
 
+-- Leader end-round action extracted from MainFrame so it can be triggered without the window open.
+-- onRefreshUI is an optional callback for the UI layer (pass refreshGameRounds from MainFrame, or nil).
+local function nhsLeaderPerformEndRound(onRefreshUI)
+  local bmf = NHS.BuildMainFrameBridge
+  if not bmf or not nhsMayUseLeaderGameActions() then
+    return
+  end
+  if not State.gameSessionActive or State.phase == Phase.PICK_HOUSE then
+    return
+  end
+  nhsAppendPastRoundSnapshotIfActiveRound()
+  -- Clear per-round time state now that accumulation has committed and reset the buckets.
+  State.hidingSpotTrackedForRound = false
+  State.hidingSpotStartTime = nil
+  State.searchRoleStartTime = nil
+  nhsLeaderDemoteSeekerAssistantIfWePromoted()
+  if NHS.ClearRoundGameMode then
+    NHS.ClearRoundGameMode()
+  else
+    State.gameMode = nil
+  end
+  NHS.FlushPhaseClock()
+  State.phase = Phase.PICK_HOUSE
+  State.gameHouseCandidateKey = nil
+  State.gameHouseCandidateDisplay = nil
+  State.gameLastRoundHouseKey = State.gameLockedHouseKey  -- preserve for subdivision-change callout on next house pick
+  State.gameLockedHouseKey = nil
+  State.gameLockedHouseDisplay = nil
+  State.gameLockedHouseLiveEntry = nil
+  State.gameLockedHouseLiveIndex = nil
+  wipe(State.gameLockedSeekerKeys)
+  State.gameLockedHiderKey = nil
+  wipe(State.gameCandidateKeys)
+  clearFound()
+  nhsStopPartyCountdown()
+  if bmf.nhsBroadcastLeaderSync and bmf.NHS_MSG_ROUND_OVER then
+    bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_ROUND_OVER)
+  end
+  print("|cff88ccff[NHS]|r Round ended. Pick the next house, then a game mode and seeker.")
+  nhsPersistGameSessionToSaved()
+  if State.seekerMode and NHS.SetSeekerMode then
+    NHS.SetSeekerMode(false)
+  end
+  if onRefreshUI then
+    onRefreshUI()
+  else
+    NHS.SessionHudUpdate()
+  end
+end
+
+-- Best-effort full UI refresh: calls RefreshGameRounds if the main window has been built, else HUD only.
+local function nhsRefreshGameUi()
+  local ui = B.getUI()
+  if ui.RefreshGameRounds then
+    ui.RefreshGameRounds()
+  else
+    NHS.SessionHudUpdate()
+  end
+end
+
+-- Revealing phase: restart the round with the same house, game mode, and seeker(s)/hider without
+-- going back through setup. Broadcasts ROUND_OVER first so followers correctly snapshot and reset
+-- before receiving the new round's sync messages.
+local function nhsLeaderPlayAgain(onRefreshUI)
+  local bmf = NHS.BuildMainFrameBridge
+  if not bmf or not nhsMayUseLeaderGameActions() then return end
+  if not State.gameSessionActive or State.phase ~= Phase.REVEALING then return end
+
+  -- Capture reuse values before clearing anything.
+  local houseKey     = State.gameLockedHouseKey
+  local houseDisplay = State.gameLockedHouseDisplay
+  local modeId       = State.gameMode
+  local isHiderMode  = NHS.IsHiderMode and NHS.IsHiderMode()
+  local hiderKey     = State.gameLockedHiderKey
+
+  -- For seeker modes, determine which keys to carry forward.
+  -- Conquer expands gameLockedSeekerKeys as hiders are found; [1] is always the original seeker.
+  -- Hot Potato swaps to the final/losing seeker; [1] is that loser.
+  -- Paired starts with two seekers; both are originals and the list is unchanged.
+  local carrySeekersOver = {}
+  if not isHiderMode then
+    if modeId == "conquer" then
+      if State.gameLockedSeekerKeys[1] then
+        carrySeekersOver[1] = State.gameLockedSeekerKeys[1]
+      end
+    else
+      for _, k in ipairs(State.gameLockedSeekerKeys) do
+        carrySeekersOver[#carrySeekersOver + 1] = k
+      end
+    end
+  end
+
+  if not houseDisplay or houseDisplay == "" then return end
+  if not modeId or not (NHS.IsValidGameMode and NHS.IsValidGameMode(modeId)) then return end
+  if isHiderMode and not hiderKey then return end
+  if not isHiderMode and #carrySeekersOver == 0 then return end
+
+  -- Snapshot and cleanly end the current round on all clients before starting the new one.
+  -- ROUND_OVER must fire first: without it, followers in the same round phase with the same
+  -- seeker key would treat the incoming Round Start as a re-sync and skip clearFound().
+  nhsAppendPastRoundSnapshotIfActiveRound()
+  State.hidingSpotTrackedForRound = false
+  State.hidingSpotStartTime = nil
+  State.searchRoleStartTime = nil
+  nhsLeaderDemoteSeekerAssistantIfWePromoted()
+  nhsStopPartyCountdown()
+  if bmf.nhsBroadcastLeaderSync and bmf.NHS_MSG_ROUND_OVER then
+    bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_ROUND_OVER)
+  end
+
+  -- Reset round-specific state while keeping the session and house history alive.
+  clearFound()
+  wipe(State.gameCandidateKeys)
+  wipe(State.gameLockedSeekerKeys)
+  State.gameLockedHiderKey     = nil
+  State.gameLockedHouseLiveEntry = nil
+  State.gameLockedHouseLiveIndex = nil
+
+  -- Re-lock house and mode.
+  State.gameLockedHouseKey     = houseKey
+  State.gameLockedHouseDisplay = houseDisplay
+  State.gameMode               = modeId
+
+  -- Re-lock seeker(s) or rebuild the seeker list for hider modes.
+  -- Rebuilding from the roster ensures late-joiners and Sardines mid-round shrinkage are handled.
+  if isHiderMode then
+    State.gameLockedHiderKey = hiderKey
+    for _, m in ipairs(nhsGetGroupRoster()) do
+      if m.key ~= hiderKey then
+        State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = m.key
+      end
+    end
+  else
+    for _, k in ipairs(carrySeekersOver) do
+      State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = k
+    end
+  end
+
+  NHS.FlushPhaseClock()
+  State.phase = Phase.PENDING
+
+  -- Sync followers through the setup phases they're skipping.
+  -- House: sendChat=false — the house was already announced this session.
+  if bmf.nhsBroadcastHouseLocked then
+    bmf.nhsBroadcastHouseLocked(houseDisplay, false, houseKey)
+  end
+  -- Game mode: always announces to chat so players see the reminder.
+  if bmf.nhsBroadcastLeaderGameMode then
+    bmf.nhsBroadcastLeaderGameMode(modeId)
+  end
+  -- Round Start: puts followers into PENDING with the correct seeker keys.
+  if bmf.nhsBroadcastRoundStart then
+    local keyStr = table.concat(State.gameLockedSeekerKeys, ",")
+    local chatLabel
+    if isHiderMode then
+      chatLabel = "[NHS] Hider Selected: " .. Ambiguate(hiderKey, "short")
+    else
+      local names = {}
+      for _, k in ipairs(State.gameLockedSeekerKeys) do
+        names[#names + 1] = Ambiguate(k, "short")
+      end
+      chatLabel = "[NHS] Seeker(s) Selected: " .. table.concat(names, ", ")
+    end
+    bmf.nhsBroadcastRoundStart(keyStr, chatLabel)
+  end
+
+  if State.seekerMode and NHS.SetSeekerMode then
+    NHS.SetSeekerMode(false)
+  end
+
+  local modeLabel = NHS.GameModeHudLabel and NHS.GameModeHudLabel(modeId) or modeId
+  print(("|cff88ccff[NHS]|r Playing again — |cffffffff%s|r. Set up hiding when ready."):format(modeLabel))
+  nhsPersistGameSessionToSaved()
+  if onRefreshUI then
+    onRefreshUI()
+  else
+    nhsRefreshGameUi()
+  end
+end
+
+-- Phase transition (HIDING / SEARCHING / REVEALING): commits rotation/history, broadcasts sync messages,
+-- builds the congratulatory reveal chat line. Extracted from MainFrame so auto-reveal and countdown
+-- triggers work correctly after /reload without the main window having been opened first.
+local function nhsLeaderBroadcastRoundPhase(phase)
+  local bmf = NHS.BuildMainFrameBridge
+  if not bmf then return end
+  if phase == Phase.HIDING then
+    -- Commit house and seeker rotation/history now that the round is actually underway.
+    if State.gameLockedHouseKey then
+      State.gameHouseRotationUsed[State.gameLockedHouseKey] = true
+      State.gameHouseHistory[#State.gameHouseHistory + 1] = State.gameLockedHouseDisplay
+    end
+    if NHS.IsHiderMode and NHS.IsHiderMode() then
+      if State.gameLockedHiderKey then
+        State.gameRotationUsed[State.gameLockedHiderKey] = true
+        local hiderLabel = (NHS.IsSardinesMode and NHS.IsSardinesMode()) and "Sardine" or "Hider"
+        State.gameSeekerHistory[#State.gameSeekerHistory + 1] = hiderLabel .. ": " .. Ambiguate(State.gameLockedHiderKey, "short")
+      end
+    else
+      local names = {}
+      for _, k in ipairs(State.gameLockedSeekerKeys) do
+        State.gameRotationUsed[k] = true
+        names[#names + 1] = Ambiguate(k, "short")
+      end
+      if #names > 0 then
+        State.gameSeekerHistory[#State.gameSeekerHistory + 1] = table.concat(names, ", ")
+      end
+    end
+    if NHS.LiveRefreshIfOpen then
+      NHS.LiveRefreshIfOpen("houses")
+      NHS.LiveRefreshIfOpen("seekers")
+    end
+    -- Step 1 of 2: capture initial seeker keys for stats. Overwritten at SEARCHING to pick up late-joiners.
+    wipe(State.gameRoundInitialSeekerKeys)
+    for _, k in ipairs(State.gameLockedSeekerKeys) do
+      State.gameRoundInitialSeekerKeys[#State.gameRoundInitialSeekerKeys + 1] = k
+    end
+    NHS.FlushPhaseClock()
+    State.phase = Phase.HIDING
+    -- Reset per-round time accumulators and start hiding-spot clock for hiders.
+    State.roundSearchingSeconds = 0
+    State.roundHidingSeconds = 0
+    State.roundFindingSpotSeconds = 0
+    State.hidingSpotTrackedForRound = true
+    State.searchRoleStartTime = nil
+    if NHS.StartHidingSpotClock then NHS.StartHidingSpotClock() end
+    if bmf.nhsBroadcastLeaderSync then bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_HIDING) end
+    nhsPlayHidingPhaseStartSound()
+  elseif phase == Phase.SEARCHING then
+    wipe(State.hiderReadySet)
+    -- Step 2 of 2: overwrite to pick up any players who joined during the hiding phase and were
+    -- added as seekers by nhsLeaderHiderModeAddLateJoiners. Conquer/Hot Potato swaps haven't
+    -- happened yet so this is still the correct "initial" seeker set for stats purposes.
+    wipe(State.gameRoundInitialSeekerKeys)
+    for _, k in ipairs(State.gameLockedSeekerKeys) do
+      State.gameRoundInitialSeekerKeys[#State.gameRoundInitialSeekerKeys + 1] = k
+    end
+    NHS.FlushPhaseClock()
+    State.phase = Phase.SEARCHING
+    -- Flush hiding-spot clock and start the search-role clock for the local player.
+    if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+    do
+      local myKey = NHS.LocalPlayerSortKey and NHS.LocalPlayerSortKey()
+      local iAmSeeker = false
+      if myKey then
+        for _, k in ipairs(State.gameLockedSeekerKeys) do
+          if NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(myKey, k) then
+            iAmSeeker = true; break
+          end
+        end
+      end
+      if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(iAmSeeker) end
+    end
+    local keyParts = {}
+    for _, k in ipairs(State.gameLockedSeekerKeys) do
+      if type(k) == "string" and k ~= "" then
+        keyParts[#keyParts + 1] = k
+      end
+    end
+    if bmf.nhsBroadcastLeaderSync then
+      if #keyParts > 0 then
+        bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_SEEKING .. table.concat(keyParts, ","))
+      else
+        bmf.nhsBroadcastLeaderSync("[NHS] The Seeking Begins!")
+      end
+    end
+    nhsLeaderTryPromoteSeekerForRaidWarn()
+  elseif phase == Phase.REVEALING then
+    NHS.FlushPhaseClock()
+    State.phase = Phase.REVEALING
+    if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+    if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+    do
+      -- Build congratulatory chat message: praise surviving hiders, or the seeker(s) if all found.
+      local seekerSet = {}
+      for _, k in ipairs(State.gameLockedSeekerKeys) do seekerSet[k] = true end
+      local hiderNames = {}
+      for _, m in ipairs(nhsGetGroupRoster()) do
+        if not seekerSet[m.key] and not State.foundSet[m.key] then
+          hiderNames[#hiderNames + 1] = Ambiguate(m.key, "short")
+        end
+      end
+      table.sort(hiderNames)
+      local function nameList(names)
+        local n = #names
+        if n == 0 then return "" end
+        if n == 1 then return names[1] end
+        if n == 2 then return names[1] .. " and " .. names[2] end
+        local t = {}
+        for i = 1, n - 1 do t[i] = names[i] end
+        return table.concat(t, ", ") .. ", and " .. names[n]
+      end
+      local chatMsg
+      local revealModeId = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
+      if revealModeId == "hot_potato" and #State.gameLockedSeekerKeys > 0 then
+        local loserName = Ambiguate(State.gameLockedSeekerKeys[1], "short")
+        chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " " .. loserName .. " is holding the Hot Potato!"
+      elseif revealModeId == "sardines" then
+        local sardineName = State.gameLockedHiderKey and Ambiguate(State.gameLockedHiderKey, "short") or "the sardine"
+        if #State.gameLockedSeekerKeys == 0 then
+          -- All seekers found and joined the sardine pile.
+          chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " Everyone squeezed in with " .. sardineName .. "!"
+        else
+          -- Time ran out; some seekers never found the sardine.
+          chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " Congratulations to " .. sardineName .. " for staying hidden!"
+        end
+      elseif #hiderNames > 0 then
+        chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " Congratulations to " .. nameList(hiderNames) .. " for staying hidden!"
+      else
+        local seekerNames = {}
+        for _, k in ipairs(State.gameLockedSeekerKeys) do
+          seekerNames[#seekerNames + 1] = Ambiguate(k, "short")
+        end
+        chatMsg = (bmf.NHS_MSG_REVEALING or "") .. " " .. nameList(seekerNames) .. " found everyone!"
+      end
+      if bmf.nhsBroadcastRevealingPhase then
+        bmf.nhsBroadcastRevealingPhase(chatMsg)
+      elseif bmf.nhsBroadcastLeaderSync then
+        bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_REVEALING)
+      end
+    end
+    nhsLeaderDemoteSeekerAssistantIfWePromoted()
+    if State.seekerMode and NHS.SetSeekerMode then NHS.SetSeekerMode(false) end
+    if NHS.OnLeaderRevealPhaseStart then NHS.OnLeaderRevealPhaseStart() end
+  end
+  if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+end
+
+-- Auto-advance to revealing when the seeker marks the last hider found. Called from GroupSync
+-- and MarkFound without the main window open — must be defined at addon load, not in BuildMainFrame.
+local function nhsTryLeaderAutoReveal()
+  if not State.gameSessionActive or not nhsIsRoundLeader() then return end
+  if State.phase ~= Phase.SEARCHING then return end
+  -- Hot Potato ends only when the timer runs out, not when a hider is found.
+  if NHS.IsHotPotatoMode and NHS.IsHotPotatoMode() then return end
+  -- Sardines: reveal when every seeker has joined the sardine (seeker list empties).
+  if NHS.IsSardinesMode and NHS.IsSardinesMode() then
+    if #State.gameLockedSeekerKeys == 0 then
+      nhsStopPartyCountdown()
+      nhsLeaderBroadcastRoundPhase(Phase.REVEALING)
+      print("|cff88ccff[NHS]|r All seekers joined the sardine!")
+      nhsPersistGameSessionToSaved()
+      nhsRefreshGameUi()
+    end
+    return
+  end
+  -- Conquer mode conscripts found hiders into gameLockedSeekerKeys, so use the initial seeker
+  -- set (captured at SEARCHING phase start) to correctly identify who started as hiders.
+  local seekerSet = {}
+  local seekerKeySource = (NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId() == "conquer")
+    and State.gameRoundInitialSeekerKeys
+    or State.gameLockedSeekerKeys
+  for _, k in ipairs(seekerKeySource) do seekerSet[k] = true end
+  local hiderCount, unfoundCount = 0, 0
+  for _, m in ipairs(nhsGetGroupRoster()) do
+    if not seekerSet[m.key] then
+      hiderCount = hiderCount + 1
+      if not State.foundSet[m.key] then unfoundCount = unfoundCount + 1 end
+    end
+  end
+  if hiderCount == 0 or unfoundCount > 0 then return end
+  nhsStopPartyCountdown()
+  nhsLeaderBroadcastRoundPhase(Phase.REVEALING)
+  print("|cff88ccff[NHS]|r All hiders found — moving to the revealing phase!")
+  nhsPersistGameSessionToSaved()
+  nhsRefreshGameUi()
+end
+
+-- End the current game session (broadcasts game-over then resets state).
+local function nhsLeaderEndSession(onRefreshUI)
+  local bmf = NHS.BuildMainFrameBridge
+  -- Snapshot the round before resetting so sessions ended during a round phase
+  -- (e.g. End Session while still in Revealing) don't lose the last round's data.
+  nhsAppendPastRoundSnapshotIfActiveRound()
+  if IsInGroup() and nhsIsRoundLeader() and bmf and bmf.nhsBroadcastLeaderSync then
+    bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_GAME_OVER)
+  end
+  NHS.EndPhaseClock()
+  nhsResetGameSession()
+  print("|cff88ccff[NHS]|r Game session ended.")
+  if onRefreshUI then onRefreshUI() else nhsRefreshGameUi() end
+end
+
+-- Start a new game session. onAfterStart is optional; the UI layer can pass refreshHouseList + refreshGameRounds.
+local function nhsLeaderStartSession(onAfterStart)
+  if IsInGroup() and not nhsIsRoundLeader() then return end
+  local bmf = NHS.BuildMainFrameBridge
+  State.gameSessionActive = true
+  State.phase = Phase.PICK_HOUSE
+  State.gameMode = nil
+  State.gameSessionHouseListSource = nil
+  State.gameHouseCandidateKey = nil
+  State.gameHouseCandidateDisplay = nil
+  State.gameLockedHouseKey = nil
+  State.gameLockedHouseDisplay = nil
+  State.gameLastRoundHouseKey = nil
+  State.gameLockedHouseLiveEntry = nil
+  State.gameLockedHouseLiveIndex = nil
+  wipe(State.gameHouseHistory)
+  wipe(State.gameHouseRotationUsed)
+  wipe(State.gameCandidateKeys)
+  wipe(State.gameLockedSeekerKeys)
+  State.gameLockedHiderKey = nil
+  wipe(State.gameSeekerHistory)
+  wipe(State.gameRotationUsed)
+  wipe(State.pastRounds)
+  wipe(State.recentlyPlayedModes)
+  nhsClearCompletedPastRoundsArchive()
+  NHS.RecordSessionStart()
+  nhsPersistGameSessionToSaved()
+  if IsInGroup() and nhsIsRoundLeader() and bmf and bmf.nhsBroadcastLeaderSync then
+    bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_SESSION_START)
+  end
+  if IsInGroup() and nhsIsRoundLeader() and NHS.VersionCheck and NHS.VersionCheck.TriggerCheck then
+    NHS.VersionCheck.TriggerCheck()
+  end
+  print("|cff88ccff[NHS]|r Game session started. Choose a house list and confirm a house, then pick a game mode.")
+  if onAfterStart then onAfterStart() else nhsRefreshGameUi() end
+end
+
+-- Select a game mode for the current round.
+local function nhsLeaderSelectGameMode(modeId, onRefreshUI)
+  local bmf = NHS.BuildMainFrameBridge
+  if not nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_GAME_MODE then
+    return
+  end
+  if not NHS.IsValidGameMode or not NHS.IsValidGameMode(modeId) then return end
+  State.gameMode = modeId
+  NHS.FlushPhaseClock()
+  State.phase = Phase.PICK_SEEKER
+  -- Track last 2 modes played this session (used to default their checkboxes off next round).
+  for i = #State.recentlyPlayedModes, 1, -1 do
+    if State.recentlyPlayedModes[i] == modeId then table.remove(State.recentlyPlayedModes, i) end
+  end
+  table.insert(State.recentlyPlayedModes, 1, modeId)
+  if #State.recentlyPlayedModes > 2 then table.remove(State.recentlyPlayedModes) end
+  local label = NHS.GameModeHudLabel and NHS.GameModeHudLabel(modeId) or modeId
+  if IsInGroup() and nhsIsRoundLeader() and bmf and bmf.nhsBroadcastLeaderGameMode then
+    bmf.nhsBroadcastLeaderGameMode(modeId)
+  end
+  print(("|cff88ccff[NHS]|r Game mode: |cffffffff%s|r — pick a seeker."):format(label))
+  nhsPersistGameSessionToSaved()
+  if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+  if onRefreshUI then onRefreshUI() else nhsRefreshGameUi() end
+end
+
+-- Lock in the selected seeker(s)/hider and advance to PENDING phase.
+local function nhsLeaderConfirmSeeker(onRefreshUI)
+  local bmf = NHS.BuildMainFrameBridge
+  if not nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_SEEKER then
+    return
+  end
+  local required = nhsGetRequiredSeekerCount()
+  if #State.gameCandidateKeys ~= required then return end
+  if not State.gameLockedHouseDisplay then
+    print("|cffff8800[NHS]|r Confirm a house first (house selection phase).")
+    return
+  end
+  clearFound()
+  wipe(State.gameLockedSeekerKeys)
+  if NHS.IsHiderMode and NHS.IsHiderMode() then
+    -- Hider mode: candidate is the hider; everyone else in the roster becomes a seeker.
+    local hiderKey = State.gameCandidateKeys[1]
+    State.gameLockedHiderKey = hiderKey
+    for _, m in ipairs(nhsGetGroupRoster()) do
+      if m.key ~= hiderKey then
+        State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = m.key
+      end
+    end
+    local hiderName = Ambiguate(hiderKey, "short")
+    wipe(State.gameCandidateKeys)
+    NHS.FlushPhaseClock()
+    State.phase = Phase.PENDING
+    if bmf and bmf.nhsBroadcastRoundStart then
+      bmf.nhsBroadcastRoundStart(table.concat(State.gameLockedSeekerKeys, ","), "[NHS] Hider Selected: " .. hiderName)
+    end
+    print(("|cff88ccff[NHS]|r Round started. |cffffffff%s|r is the hider."):format(hiderName))
+  else
+    -- Normal mode: lock in all candidates as seekers.
+    local names = {}
+    for _, k in ipairs(State.gameCandidateKeys) do
+      State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = k
+      names[#names + 1] = Ambiguate(k, "short")
+    end
+    -- gameRotationUsed and gameSeekerHistory committed when hide timer starts (HIDING phase).
+    wipe(State.gameCandidateKeys)
+    NHS.FlushPhaseClock()
+    State.phase = Phase.PENDING
+    local nameStr = table.concat(names, ", ")
+    if bmf and bmf.nhsBroadcastRoundStart then
+      bmf.nhsBroadcastRoundStart(table.concat(State.gameLockedSeekerKeys, ","), "[NHS] Seeker(s) Selected: " .. nameStr)
+    end
+    if #State.gameLockedSeekerKeys > 1 then
+      print(("|cff88ccff[NHS]|r Round started. Seekers: |cffffffff%s|r."):format(nameStr))
+    else
+      print(("|cff88ccff[NHS]|r Round started. |cffffffff%s|r is the seeker."):format(names[1] or "?"))
+    end
+  end
+  nhsPersistGameSessionToSaved()
+  if onRefreshUI then onRefreshUI() else nhsRefreshGameUi() end
+end
+
+-- Advance to HIDING or SEARCHING phase and fire the Blizzard party countdown.
+-- phase: Phase.HIDING or Phase.SEARCHING. sec: duration. presetName: label for the print line.
+local function nhsLeaderStartPhaseCountdown(phase, sec, presetName, onRefreshUI)
+  if not nhsMayUseLeaderGameActions() or not (State.gameSessionActive and IsRoundPhase(State.phase)) then
+    return
+  end
+  local bmf = NHS.BuildMainFrameBridge
+  nhsLeaderBroadcastRoundPhase(phase)
+  if phase == Phase.SEARCHING then
+    State.searchPhaseStartTime = GetTime()
+    State.searchPhaseOriginalStartTime = GetTime()
+    State.searchPhaseDuration = sec
+  end
+  local phaseLabel = phase == Phase.HIDING and "Hiding" or "Searching"
+  print(("|cff88ccff[NHS]|r %s — %s (%d s)."):format(phaseLabel, presetName or "Custom", sec))
+  local ok, err = nhsStartBuiltInCountdown(sec)
+  if not ok and NHS.debugSync then
+    print(("|cffffcc00[NHS] debugsync|r Countdown returned: ok=%s err=%s"):format(tostring(ok), tostring(err)))
+  end
+  nhsPersistGameSessionToSaved()
+  if bmf and bmf.nhsSeekerAutoModeSyncToPhase then bmf.nhsSeekerAutoModeSyncToPhase() end
+  if onRefreshUI then onRefreshUI() else nhsRefreshGameUi() end
+end
+
+-- Manual "Begin Revealing" action.
+local function nhsLeaderReveal(onRefreshUI)
+  if not nhsMayUseLeaderGameActions() or not (State.gameSessionActive and IsRoundPhase(State.phase)) then
+    return
+  end
+  if State.phase ~= Phase.SEARCHING then return end
+  nhsStopPartyCountdown()
+  nhsLeaderBroadcastRoundPhase(Phase.REVEALING)
+  print("|cff88ccff[NHS]|r Revealing phase started — hiders, show yourselves!")
+  nhsPersistGameSessionToSaved()
+  if onRefreshUI then onRefreshUI() else nhsRefreshGameUi() end
+end
+
+-- Back-navigation: revert one setup step (PICK_GAME_MODE → PICK_HOUSE, PICK_SEEKER → PICK_GAME_MODE, PENDING → PICK_SEEKER).
+local function nhsLeaderBack(onRefreshUI)
+  local bmf = NHS.BuildMainFrameBridge
+  if not nhsMayUseLeaderGameActions() or not State.gameSessionActive then return end
+  if State.phase == Phase.PICK_GAME_MODE then
+    State.gameHouseCandidateKey = State.gameLockedHouseKey
+    State.gameHouseCandidateDisplay = State.gameLockedHouseDisplay
+    State.gameLockedHouseKey = nil
+    State.gameLockedHouseDisplay = nil
+    State.gameLockedHouseLiveEntry = nil
+    State.gameLockedHouseLiveIndex = nil
+    NHS.FlushPhaseClock()
+    State.phase = Phase.PICK_HOUSE
+    if bmf and bmf.nhsBroadcastLeaderSync then bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_ROUND_OVER, false) end
+    print("|cff88ccff[NHS]|r Back to house selection.")
+  elseif State.phase == Phase.PICK_SEEKER then
+    if NHS.ClearRoundGameMode then NHS.ClearRoundGameMode() else State.gameMode = nil end
+    wipe(State.gameCandidateKeys)
+    NHS.FlushPhaseClock()
+    State.phase = Phase.PICK_GAME_MODE
+    if bmf and bmf.nhsBroadcastHouseLocked then bmf.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false, State.gameLockedHouseKey) end
+    print("|cff88ccff[NHS]|r Back to game mode selection.")
+  elseif State.phase == Phase.PENDING then
+    if NHS.IsHiderMode and NHS.IsHiderMode() then
+      if State.gameLockedHiderKey then State.gameCandidateKeys[1] = State.gameLockedHiderKey end
+      State.gameLockedHiderKey = nil
+    else
+      for _, k in ipairs(State.gameLockedSeekerKeys) do
+        State.gameCandidateKeys[#State.gameCandidateKeys + 1] = k
+      end
+    end
+    wipe(State.gameLockedSeekerKeys)
+    clearFound()
+    nhsStopPartyCountdown()
+    if State.seekerMode and NHS.SetSeekerMode then NHS.SetSeekerMode(false) end
+    NHS.FlushPhaseClock()
+    State.phase = Phase.PICK_SEEKER
+    if bmf and bmf.nhsBroadcastLeaderSync then
+      bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_ROUND_OVER, false)
+      bmf.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false, State.gameLockedHouseKey)
+      if State.gameMode then bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_GAME_MODE .. State.gameMode, false) end
+    end
+    print("|cff88ccff[NHS]|r Back to seeker selection.")
+  else
+    return
+  end
+  nhsPersistGameSessionToSaved()
+  if onRefreshUI then onRefreshUI() else nhsRefreshGameUi() end
+end
+
+-- Chosen One: on GROUP_ROSTER_UPDATE, add any new group member as a seeker.
+-- Guards make this a no-op in every other mode/phase/role.
+local function nhsLeaderHiderModeAddLateJoiners()
+  if not nhsMayUseLeaderGameActions() then return end
+  if not State.gameSessionActive then return end
+  if not IsRoundPhase(State.phase) then return end
+  if not (NHS.IsHiderMode and NHS.IsHiderMode()) then return end
+  if not State.gameLockedHiderKey then return end
+
+  local seekerSet = {}
+  for _, k in ipairs(State.gameLockedSeekerKeys) do
+    seekerSet[k] = true
+  end
+
+  local added = {}
+  for _, m in ipairs(nhsGetGroupRoster()) do
+    if m.key ~= State.gameLockedHiderKey and not seekerSet[m.key] then
+      State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = m.key
+      added[#added + 1] = m.display
+    end
+  end
+
+  if #added == 0 then return end
+
+  local bmf = NHS.BuildMainFrameBridge
+  if bmf and bmf.nhsBroadcastLeaderSync and bmf.NHS_MSG_ROUND_START then
+    local keyStr = table.concat(State.gameLockedSeekerKeys, ",")
+    if keyStr ~= "" then
+      bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_ROUND_START .. keyStr, false)
+    end
+  end
+
+  print(("|cff88ccff[NHS]|r %s joined and %s added as %s (Chosen One)."):format(
+    table.concat(added, ", "),
+    #added == 1 and "was" or "were",
+    #added == 1 and "a seeker" or "seekers"
+  ))
+
+  nhsPersistGameSessionToSaved()
+  nhsRefreshGameUi()
+end
+
+NHS.GetGroupRoster = nhsGetGroupRoster
 NHS.UnitSortKey = nhsUnitSortKey
 NHS.UnitIsInGroupRoster = nhsUnitIsInGroupRoster
 NHS.LocalPlayerSortKey = nhsLocalPlayerSortKey
@@ -956,6 +1632,18 @@ NHS.ClearCompletedPastRoundsArchive = nhsClearCompletedPastRoundsArchive
 NHS.PickRandomSeekerMember = nhsPickRandomSeekerMember
 NHS.PlayHidingPhaseStartSound = nhsPlayHidingPhaseStartSound
 NHS.GameplaySoundsEnabled = nhsGameplaySoundsEnabled
+NHS.LeaderPerformEndRound = nhsLeaderPerformEndRound
+NHS.LeaderBroadcastRoundPhase = nhsLeaderBroadcastRoundPhase
+NHS.TryLeaderAutoReveal = nhsTryLeaderAutoReveal
+NHS.LeaderEndSession = nhsLeaderEndSession
+NHS.LeaderStartSession = nhsLeaderStartSession
+NHS.LeaderSelectGameMode = nhsLeaderSelectGameMode
+NHS.LeaderConfirmSeeker = nhsLeaderConfirmSeeker
+NHS.LeaderStartPhaseCountdown = nhsLeaderStartPhaseCountdown
+NHS.LeaderReveal = nhsLeaderReveal
+NHS.LeaderBack = nhsLeaderBack
+NHS.LeaderPlayAgain = nhsLeaderPlayAgain
+NHS.LeaderHiderModeAddLateJoiners = nhsLeaderHiderModeAddLateJoiners
 
 local bmf = NHS.BuildMainFrameBridge
 if bmf then
@@ -969,6 +1657,8 @@ if bmf then
   bmf.nhsLeaderTryPromoteSeekerForRaidWarn = nhsLeaderTryPromoteSeekerForRaidWarn
   bmf.nhsLeaderDemoteSeekerAssistantIfWePromoted = nhsLeaderDemoteSeekerAssistantIfWePromoted
   bmf.nhsAppendPastRoundSnapshotIfActiveRound = nhsAppendPastRoundSnapshotIfActiveRound
+  bmf.nhsLeaderPerformEndRound = nhsLeaderPerformEndRound
+  bmf.nhsLeaderPlayAgain = nhsLeaderPlayAgain
   bmf.nhsRandomSeekerEligible = nhsRandomSeekerEligible
   bmf.nhsGetRequiredSeekerCount = nhsGetRequiredSeekerCount
 end

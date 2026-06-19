@@ -26,6 +26,11 @@ local NHS_MSG_FOUND_PREFIX = "[NHS] Found: "
 local NHS_MSG_REVEALING = "[NHS] The Revealing Begins!"
 local NHS_MSG_NP_NEAREST = "[NHS] NP Nearest: "
 local NHS_MSG_HIDER_READY = "[NHS] Hider Ready: "
+local NHS_MSG_SARDINE_JOIN = "[NHS] Sardine: "
+local NHS_MSG_HP_SWAP = "[NHS] Seeker Swap: "
+-- Separator embedded in the addon-only house payload to carry both key and display in one message.
+-- \31 (unit separator) is safe in addon messages and never appears in house names or persistence keys.
+local NHS_HOUSE_KEY_SEP = "\31"
 
 -- Addon comm: same human-readable NHS line as payload (max 255 bytes).
 local NHS_ADDON_PREFIX = "NeighborhoodHS"
@@ -154,16 +159,39 @@ local function nhsBroadcastRoundStart(keyStr, chatMsg)
   nhsGameplaySendChatIfOutOfCombat(msg, nhsGroupSyncChannel())
 end
 
-local function nhsBroadcastHouseLocked(display, sendChat)
+-- key (optional): the house persistence key. When provided, the addon payload carries
+-- "<key>\31<display>" so followers can store the stable key for stats while still displaying
+-- the human-readable name. Chat always receives the plain display name (unchanged for humans).
+-- Old clients receive the combined addon payload and store it verbatim as remoteHouseDisplay
+-- (garbled, accepted trade-off). New clients split on NHS_HOUSE_KEY_SEP to extract both.
+local function nhsBroadcastHouseLocked(display, sendChat, key)
   if type(display) ~= "string" or display == "" then
     return
   end
   local safe = NHS.HousingPinShare.SanitizeForChat(display)
-  local msg = NHS_MSG_HOUSE .. safe
-  if #msg > 250 then
-    msg = NHS_MSG_HOUSE .. safe:sub(1, math.max(1, 250 - #NHS_MSG_HOUSE - 1)) .. "…"
+  -- Chat: always the human-readable display name (behaviour unchanged).
+  local chatMsg = NHS_MSG_HOUSE .. safe
+  if #chatMsg > 250 then
+    chatMsg = NHS_MSG_HOUSE .. safe:sub(1, math.max(1, 250 - #NHS_MSG_HOUSE - 1)) .. "…"
   end
-  nhsBroadcastLeaderSync(msg, sendChat)
+  if sendChat ~= false then
+    nhsGameplaySendChatIfOutOfCombat(chatMsg, nhsGroupSyncChannel())
+  end
+  -- Addon: persistence key embedded before separator so followers can use it for stats.
+  local addonMsg
+  if type(key) == "string" and key ~= "" then
+    local combined = NHS_MSG_HOUSE .. key .. NHS_HOUSE_KEY_SEP .. safe
+    if #combined <= 255 then
+      addonMsg = combined
+    else
+      -- Combined too long: key only. Follower won't get a clean display from this message.
+      local keyOnly = NHS_MSG_HOUSE .. key
+      addonMsg = #keyOnly <= 255 and keyOnly or chatMsg
+    end
+  else
+    addonMsg = chatMsg
+  end
+  nhsSendAddonSyncPayload(addonMsg)
 end
 
 -- After [NHS] House: … — waypoint link in chat for players (when out of combat) + [NHS] coords on addon for sync.
@@ -249,6 +277,7 @@ local function nhsRemoteFollowerSyncRoundState(keysStr, phase)
   for _, k in ipairs(keys) do
     C.State.remoteSeekerKeys[#C.State.remoteSeekerKeys + 1] = k
   end
+  if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
   C.State.phase = phase
 end
 
@@ -269,6 +298,7 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
           C.State.remoteSessionActive = true
           wipe(C.State.remoteSeekerKeys)
           C.State.remoteSeekerKeys[1] = m.key
+          if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
           C.State.phase = Phase.SEARCHING
           break
         end
@@ -309,6 +339,15 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
   end
   C.State.foundSet[foundKey] = true
   C.State.foundOrder[#C.State.foundOrder + 1] = foundKey
+  -- If the local player was just found, stop their hiding clock (no longer hiding).
+  -- For Conquer, the block below will restart the clock as seeker; for all other modes
+  -- the clock simply stops here.
+  do
+    local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+    if myKey and C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, foundKey) then
+      if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+    end
+  end
   if NHS.OvertimeOnFound then
     NHS.OvertimeOnFound()
   end
@@ -330,6 +369,12 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
       if not alreadyIn then
         targetList[#targetList + 1] = foundKey
       end
+    end
+    -- If the local player was just found, switch their role clock from hiding to seeking.
+    local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+    if myKey and C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, foundKey) then
+      if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+      if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(true) end
     end
   end
   if NHS.RefreshGameSessionUi then
@@ -390,6 +435,8 @@ local function nhsBroadcastHiderReady()
   local msg = NHS_MSG_HIDER_READY .. myKey
   if #msg > 255 then return end
   C.State.hiderReadySet[myKey] = true
+  -- Player declared they're hidden: commit finding-spot time up to this moment.
+  if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
   nhsSendAddonSyncPayload(msg)
   if NHS.RefreshGameSessionUi then
     NHS.RefreshGameSessionUi()
@@ -398,6 +445,31 @@ local function nhsBroadcastHiderReady()
   end
 end
 NHS.BroadcastHiderReady = nhsBroadcastHiderReady
+
+-- Sardines mode: seeker broadcasts their own key when they find and join the sardine's hiding spot.
+local function nhsBroadcastSardineJoined()
+  if not IsInGroup() then return end
+  if not C.nhsLocalPlayerIsDesignatedSeeker or not C.nhsLocalPlayerIsDesignatedSeeker() then return end
+  local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+  if not myKey or myKey == "" then return end
+  local msg = NHS_MSG_SARDINE_JOIN .. myKey
+  if #msg > 255 then return end
+  nhsGameplaySendChatIfOutOfCombat(msg, nhsSeekerFoundSyncChannel())
+  nhsSendAddonSyncPayload(msg)
+end
+NHS.BroadcastSardineJoined = nhsBroadcastSardineJoined
+
+-- Hot Potato mode: current seeker broadcasts when they tag a hider (newSeekerKey becomes the seeker).
+-- MarkFound.lua validates seeker status before calling; no redundant check here.
+local function nhsBroadcastHotPotatoSwap(newSeekerKey)
+  if not IsInGroup() then return end
+  if type(newSeekerKey) ~= "string" or newSeekerKey == "" then return end
+  local msg = NHS_MSG_HP_SWAP .. newSeekerKey
+  if #msg > 255 then return end
+  nhsGameplaySendChatIfOutOfCombat(msg, nhsSeekerFoundSyncChannel())
+  nhsSendAddonSyncPayload(msg)
+end
+NHS.BroadcastHotPotatoSwap = nhsBroadcastHotPotatoSwap
 
 -- Returns true if this was an [NHS] Hider Ready: line (handled or ignored); false otherwise.
 local function nhsApplyHiderReady(senderName, text)
@@ -421,6 +493,97 @@ local function nhsApplyHiderReady(senderName, text)
   elseif C.nhsSessionHudUpdate then
     C.nhsSessionHudUpdate()
   end
+  return true
+end
+
+-- Sardines: seeker joined the sardine's hiding spot.
+local function nhsApplySardineJoined(senderName, text)
+  local body = text:match("^%[NHS%] Sardine:%s*(.+)%s*$")
+  if not body then return false end
+  if C.State.phase ~= Phase.SEARCHING then return true end
+  if not C.nhsChatSenderIsDesignatedSeeker(senderName) then return true end
+  local joinedKey = Ambiguate((body:match("^%s*(.-)%s*$") or body), "none")
+  if not joinedKey or joinedKey == "" then return true end
+  if C.nhsCanonicalGroupSortKey then joinedKey = C.nhsCanonicalGroupSortKey(joinedKey) end
+  -- Dedup: MarkFound already applied this locally on the sender's client.
+  if C.State.foundSet[joinedKey] then
+    C.nhsPersistGameSessionToSaved()
+    return true
+  end
+  C.State.foundSet[joinedKey] = true
+  C.State.foundOrder[#C.State.foundOrder + 1] = joinedKey
+  -- Remove the joined seeker from the seeker list.
+  local targetList = C.State.gameSessionActive and C.State.gameLockedSeekerKeys
+    or (C.State.remoteSessionActive and C.State.remoteSeekerKeys)
+  if targetList then
+    for i = #targetList, 1, -1 do
+      local k = targetList[i]
+      if k == joinedKey or (C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(k, joinedKey)) then
+        table.remove(targetList, i)
+        break
+      end
+    end
+  end
+  -- The joining player exits seeker mode on their own client.
+  local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+  if myKey and C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, joinedKey) then
+    if C.State.seekerMode and NHS.SetSeekerMode then NHS.SetSeekerMode(false) end
+  end
+  if NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
+  elseif C.nhsSessionHudUpdate then
+    C.nhsSessionHudUpdate()
+  end
+  if NHS.TryLeaderAutoReveal then NHS.TryLeaderAutoReveal() end
+  if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+  C.nhsPersistGameSessionToSaved()
+  return true
+end
+
+-- Hot Potato: seeker tagged a hider, they swap roles.
+local function nhsApplyHotPotatoSwap(senderName, text)
+  local body = text:match("^%[NHS%] Seeker Swap:%s*(.+)%s*$")
+  if not body then return false end
+  if C.State.phase ~= Phase.SEARCHING then return true end
+  if not C.nhsChatSenderIsDesignatedSeeker(senderName) then return true end
+  local newSeekerKey = Ambiguate((body:match("^%s*(.-)%s*$") or body), "none")
+  if not newSeekerKey or newSeekerKey == "" then return true end
+  if C.nhsCanonicalGroupSortKey then newSeekerKey = C.nhsCanonicalGroupSortKey(newSeekerKey) end
+  local targetList = C.State.gameSessionActive and C.State.gameLockedSeekerKeys
+    or (C.State.remoteSessionActive and C.State.remoteSeekerKeys)
+  if not targetList or #targetList == 0 then return true end
+  local oldSeekerKey = targetList[1]
+  -- Dedup: MarkFound already applied this swap on the sender's client.
+  if C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(oldSeekerKey or "", newSeekerKey) then
+    return true
+  end
+  -- Record who passed the potato (the old seeker) in the round history.
+  C.State.foundOrder[#C.State.foundOrder + 1] = oldSeekerKey
+  -- Swap: wipe and set new seeker.
+  wipe(targetList)
+  targetList[1] = newSeekerKey
+  -- No-tagback: the new seeker cannot immediately tag back the old seeker.
+  C.State.hotPotatoTaggedBy = oldSeekerKey
+  -- Role-switch time tracking: only the two players whose roles changed need an update.
+  do
+    local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+    if myKey and NHS.FlushSearchRoleClock and NHS.StartSearchRoleClock then
+      local iWasSeeker = C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, oldSeekerKey)
+      local iAmNewSeeker = C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, newSeekerKey)
+      if iWasSeeker or iAmNewSeeker then
+        NHS.FlushSearchRoleClock()
+        NHS.StartSearchRoleClock(iAmNewSeeker and true or false)
+      end
+    end
+  end
+  -- All players stay in seeker mode throughout Hot Potato; no transitions needed here.
+  if NHS.RefreshGameSessionUi then
+    NHS.RefreshGameSessionUi()
+  elseif C.nhsSessionHudUpdate then
+    C.nhsSessionHudUpdate()
+  end
+  if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+  C.nhsPersistGameSessionToSaved()
   return true
 end
 
@@ -482,12 +645,18 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
         for _, k in ipairs(keys) do
           C.State.remoteSeekerKeys[#C.State.remoteSeekerKeys + 1] = k
         end
+        if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
         C.State.phase = Phase.PENDING
         local seekerDisplayNames = {}
         for _, k in ipairs(keys) do
           seekerDisplayNames[#seekerDisplayNames + 1] = Ambiguate(k, "short")
         end
         C.State.gameSeekerHistory[#C.State.gameSeekerHistory + 1] = table.concat(seekerDisplayNames, ", ")
+        -- Snapshot initial seeker keys so stats accumulation at ROUND_OVER reflects original roles.
+        wipe(C.State.gameRoundInitialSeekerKeys)
+        for _, k in ipairs(keys) do
+          C.State.gameRoundInitialSeekerKeys[#C.State.gameRoundInitialSeekerKeys + 1] = k
+        end
       end
     end
   elseif text:match("^%[NHS%]%s*Game mode:%s*.+") then
@@ -497,6 +666,7 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       if NHS.IsValidGameMode and NHS.IsValidGameMode(modeId) then
         C.State.remoteSessionActive = true
         C.State.remoteGameMode = modeId
+        if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
         C.State.phase = Phase.PICK_SEEKER
         -- Toy & Seek: follower triggers ownership broadcast so pool can be computed.
         if modeId == "toy_and_seek" and C.nhsTASOnModeSelected then
@@ -515,36 +685,78 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       NHS.ClearCompletedPastRoundsArchive()
     end
     C.State.remoteHouseDisplay = nil
+    C.State.remoteHouseKey = nil
+    if NHS.RecordSessionStart then NHS.RecordSessionStart() end
   elseif text:match("^%[NHS%]%s*House:%s*.+") then
     local housePart = text:match("^%[NHS%]%s*House:%s*(.+)%s*$")
     if housePart then
+      -- Count as a session for players who join after the session-start broadcast.
+      if not C.State.remoteSessionActive then
+        if NHS.RecordSessionStart then NHS.RecordSessionStart() end
+      else
+        if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
+      end
       C.State.remoteSessionActive = true
       C.State.phase = Phase.PICK_GAME_MODE
       C.State.remoteGameMode = nil
-      local disp = housePart:match("^%s*(.-)%s*$") or housePart
+      -- New format: "<key>\31<display>". Old format: plain display string.
+      local sepPos = housePart:find(NHS_HOUSE_KEY_SEP, 1, true)
+      local disp
+      if sepPos and sepPos > 1 then
+        C.State.remoteHouseKey = housePart:sub(1, sepPos - 1)
+        local rawDisp = housePart:sub(sepPos + 1)
+        disp = rawDisp:match("^%s*(.-)%s*$") or rawDisp
+        if disp == "" then disp = C.State.remoteHouseKey end
+      else
+        C.State.remoteHouseKey = nil
+        disp = housePart:match("^%s*(.-)%s*$") or housePart
+      end
       C.State.remoteHouseDisplay = disp
       if C.State.gameHouseHistory[#C.State.gameHouseHistory] ~= disp then
         C.State.gameHouseHistory[#C.State.gameHouseHistory + 1] = disp
+        if NHS.LiveRefreshIfOpen then NHS.LiveRefreshIfOpen("houses") end
       end
     end
   elseif text:match("^%[NHS%]%s*Round is over!%s*$") then
     C.nhsAppendPastRoundSnapshotIfActiveRound()
     nhsClearRemoteRoundSync()
     C.State.remoteHouseDisplay = nil
+    C.State.remoteHouseKey = nil
+    if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
     C.State.phase = Phase.PICK_HOUSE
     C.State.remoteGameMode = nil
+    C.State.followerSearchPhaseStartTime = nil
+    wipe(C.State.gameRoundInitialSeekerKeys)
+    -- Clear per-round time state; accumulate already committed and reset the buckets.
+    C.State.hidingSpotStartTime = nil
+    C.State.hidingSpotTrackedForRound = false
+    C.State.searchRoleStartTime = nil
     if C.State.seekerMode and NHS.SetSeekerMode then
       NHS.SetSeekerMode(false)
     end
   elseif text:match("^%[NHS%]%s*Game Over! Thanks for playing!%s*$") then
+    -- Snapshot before archiving so sessions ended mid-round (e.g. during Revealing) capture
+    -- the last round. ArchiveCompletedPastRoundsForReload saves pastRounds to NHSV, so the
+    -- snapshot must be appended first.
+    C.nhsAppendPastRoundSnapshotIfActiveRound()
     if NHS.ArchiveCompletedPastRoundsForReload then
       NHS.ArchiveCompletedPastRoundsForReload()
     end
+    if NHS.EndPhaseClock then NHS.EndPhaseClock() end
+    C.State.followerSearchPhaseStartTime = nil
+    wipe(C.State.gameRoundInitialSeekerKeys)
+    C.State.hidingSpotStartTime = nil
+    C.State.hidingSpotTrackedForRound = false
+    C.State.searchRoleStartTime = nil
+    C.State.roundSearchingSeconds = 0
+    C.State.roundHidingSeconds = 0
+    C.State.roundFindingSpotSeconds = 0
     C.State.remoteSessionActive = false
     C.State.phase = Phase.NONE
     wipe(C.State.gameSeekerHistory)
     wipe(C.State.gameHouseHistory)
     C.State.remoteHouseDisplay = nil
+    C.State.remoteHouseKey = nil
     C.State.remoteGameMode = nil
     nhsClearRemoteRoundSync()
     if C.State.seekerMode and NHS.SetSeekerMode then
@@ -558,12 +770,29 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       if NHS.PlayHidingPhaseStartSound then
         NHS.PlayHidingPhaseStartSound()
       end
+      if not C.State.hidingSpotTrackedForRound then
+        C.State.hidingSpotTrackedForRound = true
+        C.State.roundSearchingSeconds = 0
+        C.State.roundHidingSeconds = 0
+        C.State.roundFindingSpotSeconds = 0
+        C.State.searchRoleStartTime = nil
+        if NHS.StartHidingSpotClock then NHS.StartHidingSpotClock() end
+      end
     elseif text:match("^%[NHS%]%s*Hiding Starts Now%s*$") then
       C.State.remoteSessionActive = true
       if IsRoundPhase(C.State.phase) then
+        if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
         C.State.phase = Phase.HIDING
         if NHS.PlayHidingPhaseStartSound then
           NHS.PlayHidingPhaseStartSound()
+        end
+        if not C.State.hidingSpotTrackedForRound then
+          C.State.hidingSpotTrackedForRound = true
+          C.State.roundSearchingSeconds = 0
+          C.State.roundHidingSeconds = 0
+          C.State.roundFindingSpotSeconds = 0
+          C.State.searchRoleStartTime = nil
+          if NHS.StartHidingSpotClock then NHS.StartHidingSpotClock() end
         end
       end
     else
@@ -571,16 +800,53 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       if seekKey then
         wipe(C.State.hiderReadySet)
         nhsRemoteFollowerSyncRoundState(seekKey, Phase.SEARCHING)
+        -- Start timers only on first receipt; re-syncs (same round still SEARCHING) are no-ops.
+        if C.State.phase == Phase.SEARCHING and not C.State.followerSearchPhaseStartTime then
+          C.State.followerSearchPhaseStartTime = GetTime()
+          if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+          do
+            local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+            local iAmSeeker = false
+            if myKey then
+              for _, k in ipairs(C.State.remoteSeekerKeys) do
+                if C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, k) then
+                  iAmSeeker = true; break
+                end
+              end
+            end
+            if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(iAmSeeker) end
+          end
+        end
       elseif text:match("^%[NHS%]%s*The Seeking Begins!%s*$") then
         C.State.remoteSessionActive = true
         if IsRoundPhase(C.State.phase) then
           wipe(C.State.hiderReadySet)
+          if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
           C.State.phase = Phase.SEARCHING
+        end
+        if C.State.phase == Phase.SEARCHING and not C.State.followerSearchPhaseStartTime then
+          C.State.followerSearchPhaseStartTime = GetTime()
+          if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+          do
+            local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+            local iAmSeeker = false
+            if myKey then
+              for _, k in ipairs(C.State.remoteSeekerKeys) do
+                if C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, k) then
+                  iAmSeeker = true; break
+                end
+              end
+            end
+            if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(iAmSeeker) end
+          end
         end
       elseif text:match("^%[NHS%]%s*The Revealing Begins!%s*$") then
         C.State.remoteSessionActive = true
         if IsRoundPhase(C.State.phase) then
+          if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
           C.State.phase = Phase.REVEALING
+          if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+          if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
           if C.State.seekerMode and NHS.SetSeekerMode then
             NHS.SetSeekerMode(false)
           end
@@ -669,7 +935,7 @@ local function nhsLeaderBroadcastGameplayCatchUpSync()
     nhsBroadcastLeaderSync(NHS_MSG_SESSION_START)
     mark()
     if C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "" then
-      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay)
+      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay, nil, C.State.gameLockedHouseKey)
       mark()
       if C.State.gameLockedHouseKey then
         nhsBroadcastGameplayHousePin(
@@ -685,7 +951,7 @@ local function nhsLeaderBroadcastGameplayCatchUpSync()
     if not (C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "") then
       return false, "Confirm a house first so group sync can re-send it."
     end
-    nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay)
+    nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay, nil, C.State.gameLockedHouseKey)
     mark()
     if C.State.gameLockedHouseKey then
       nhsBroadcastGameplayHousePin(
@@ -704,7 +970,7 @@ local function nhsLeaderBroadcastGameplayCatchUpSync()
     end
   elseif IsRoundPhase(gp) then
     if C.State.gameLockedHouseDisplay and C.State.gameLockedHouseDisplay ~= "" and C.State.gameLockedHouseKey then
-      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay)
+      nhsBroadcastHouseLocked(C.State.gameLockedHouseDisplay, nil, C.State.gameLockedHouseKey)
       mark()
       nhsBroadcastGameplayHousePin(
         C.State.gameLockedHouseLiveEntry,
@@ -776,6 +1042,8 @@ end
 
 NHS.GroupSync = {
   BroadcastSeekerFound = nhsBroadcastSeekerFound,
+  BroadcastSardineJoined = nhsBroadcastSardineJoined,
+  BroadcastHotPotatoSwap = nhsBroadcastHotPotatoSwap,
   ClearRemoteRound = nhsClearRemoteRoundSync,
   LeaderRebroadcastActiveRoundPhaseIfNeeded = nhsLeaderRebroadcastActiveRoundPhaseIfNeeded,
   LeaderBroadcastGameplayCatchUpSync = nhsLeaderBroadcastGameplayCatchUpSync,
@@ -855,6 +1123,12 @@ local function nhsDispatchGroupNhsLine(senderName, text)
     end
     return
   end
+  if nhsApplySardineJoined(senderName, text) then
+    return
+  end
+  if nhsApplyHotPotatoSwap(senderName, text) then
+    return
+  end
   if nhsApplyFoundSyncFromChat(senderName, text) then
     return
   end
@@ -867,6 +1141,8 @@ local function nhsDispatchGroupNhsLine(senderName, text)
   if C.nhsTASApplyStrike and C.nhsTASApplyStrike(senderName, text) then
     return
   end
+  if NHS.VersionCheck and NHS.VersionCheck.ApplyVersionQuery(senderName, text) then return end
+  if NHS.VersionCheck and NHS.VersionCheck.ApplyVersionReply(senderName, text) then return end
   nhsApplyGroupSyncFromLeader(senderName, text)
 end
 
@@ -898,7 +1174,16 @@ end
 
 local nhsSyncChatFrame = CreateFrame("Frame")
 nhsSyncChatFrame:RegisterEvent("CHAT_MSG_ADDON")
+nhsSyncChatFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 nhsSyncChatFrame:SetScript("OnEvent", function(_, event, ...)
+  if event == "PLAYER_ENTERING_WORLD" then
+    -- Re-register after zone transitions; housing zone boundaries can reset
+    -- server-side prefix registration, silently dropping all incoming addon messages.
+    if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
+      C_ChatInfo.RegisterAddonMessagePrefix(NHS_ADDON_PREFIX)
+    end
+    return
+  end
   if event ~= "CHAT_MSG_ADDON" then
     return
   end

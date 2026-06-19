@@ -84,10 +84,98 @@ local function markTargetFound(opts)
       return
     end
   end
+  local modeId = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
+  local disp = UnitName("target") or Ambiguate(key, "short")
+
+  -- Sardines mode: seeker joins the sardine rather than marking the hider found.
+  -- The dskKeys loop above already blocks targeting current seekers. Any group member who
+  -- passed that check is either the sardine or a seeker who already joined and was removed
+  -- from the seeker list — both are valid targets, so no further validity check is needed.
+  if modeId == "sardines" then
+    local myKey = NHS.LocalPlayerSortKey()
+    if not myKey then return end
+    if State.foundSet[myKey] then return end
+    -- Broadcast before modifying state so the seeker check in the broadcast still passes.
+    if NHS.GroupSync and NHS.GroupSync.BroadcastSardineJoined then
+      NHS.GroupSync.BroadcastSardineJoined()
+    end
+    State.foundSet[myKey] = true
+    State.foundOrder[#State.foundOrder + 1] = myKey
+    for i = #State.gameLockedSeekerKeys, 1, -1 do
+      if NHS.GroupSortKeysEquivalent(State.gameLockedSeekerKeys[i], myKey) then
+        table.remove(State.gameLockedSeekerKeys, i)
+        break
+      end
+    end
+    for i = #State.remoteSeekerKeys, 1, -1 do
+      if NHS.GroupSortKeysEquivalent(State.remoteSeekerKeys[i], myKey) then
+        table.remove(State.remoteSeekerKeys, i)
+        break
+      end
+    end
+    if State.seekerMode and NHS.SetSeekerMode then NHS.SetSeekerMode(false) end
+    print(("|cff88ff88[NHS]|r Joined the sardine with %s!"):format(disp))
+    if NHS.TryLeaderAutoReveal then NHS.TryLeaderAutoReveal() end
+    if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+    if NHS.RefreshGameSessionUi then
+      NHS.RefreshGameSessionUi()
+    else
+      local UI = B.getUI()
+      if UI.RefreshFound then UI.RefreshFound() elseif NHS.SessionHudUpdate then NHS.SessionHudUpdate() end
+    end
+    NHS.PersistGameSessionToSaved()
+    return
+  end
+
   if State.foundSet[key] then
     return
   end
-  local disp = UnitName("target") or Ambiguate(key, "short")
+
+  -- Hot Potato mode: seeker and found hider swap roles.
+  if modeId == "hot_potato" then
+    local isNoTagback = State.hotPotatoTaggedBy and (
+      (NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(key, State.hotPotatoTaggedBy))
+      or key == State.hotPotatoTaggedBy
+    )
+    if isNoTagback then
+      if not quiet then
+        print("|cffff8800[NHS]|r No tagbacks! Find someone else.")
+      end
+      return
+    end
+    local myKey = NHS.LocalPlayerSortKey()
+    if not myKey then return end
+    -- Broadcast before wiping seekerKeys so the seeker check in the broadcast still passes.
+    if NHS.GroupSync and NHS.GroupSync.BroadcastHotPotatoSwap then
+      NHS.GroupSync.BroadcastHotPotatoSwap(key)
+    end
+    State.foundOrder[#State.foundOrder + 1] = myKey
+    wipe(State.gameLockedSeekerKeys)
+    State.gameLockedSeekerKeys[1] = key
+    -- Follower seekers: mirror the swap into remoteSeekerKeys so the echo-back dedup
+    -- in nhsApplyHotPotatoSwap (oldSeekerKey == newSeekerKey) fires correctly and
+    -- avoids adding the passer to foundOrder a second time.
+    if State.remoteSessionActive then
+      wipe(State.remoteSeekerKeys)
+      State.remoteSeekerKeys[1] = key
+    end
+    State.hotPotatoTaggedBy = myKey
+    -- Local player (old seeker) is now a hider; commit their seeking time and restart as hider.
+    if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+    if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(false) end
+    -- All players stay in seeker mode throughout Hot Potato; no transition needed here.
+    print(("|cff88ff88[NHS]|r Hot Potato! %s is now the seeker."):format(disp))
+    if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
+    if NHS.RefreshGameSessionUi then
+      NHS.RefreshGameSessionUi()
+    else
+      local UI = B.getUI()
+      if UI.RefreshFound then UI.RefreshFound() elseif NHS.SessionHudUpdate then NHS.SessionHudUpdate() end
+    end
+    NHS.PersistGameSessionToSaved()
+    return
+  end
+
   State.foundSet[key] = true
   State.foundOrder[#State.foundOrder + 1] = key
   -- Conquer mode: add the found player to the seeker list so they can broadcast finds.
@@ -106,6 +194,13 @@ local function markTargetFound(opts)
       elseif State.remoteSessionActive then
         State.remoteSeekerKeys[#State.remoteSeekerKeys + 1] = key
       end
+    end
+    -- If the local player is the one who was just found, switch their role clock.
+    -- (The seeker who marked them found handles this via nhsApplyFoundSyncFromChat echo.)
+    local myKey = NHS.LocalPlayerSortKey and NHS.LocalPlayerSortKey()
+    if myKey and NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(myKey, key) then
+      if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+      if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(true) end
     end
   end
   print(("|cff88ff88[NHS]|r Marked found: %s"):format(disp))

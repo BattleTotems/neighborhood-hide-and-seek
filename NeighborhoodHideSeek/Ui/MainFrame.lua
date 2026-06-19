@@ -71,6 +71,19 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   endRoundBtn:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -8)
   endRoundBtn:Hide()
 
+  local playAgainBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  playAgainBtn:SetSize(150, 24)
+  playAgainBtn:SetText("Restart Round")
+  playAgainBtn:SetPoint("LEFT", endRoundBtn, "RIGHT", 8, 0)
+  playAgainBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Restart Round")
+    GameTooltip:AddLine("Restart with the same house, game mode, and seeker — skip straight to preparing.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  playAgainBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  playAgainBtn:Hide()
+
   local backBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   backBtn:SetSize(90, 24)
   backBtn:SetText("< Back")
@@ -115,12 +128,21 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     GameTooltip:Hide()
   end)
 
+  local gameModeRecentHint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  gameModeRecentHint:SetWidth(308)
+  gameModeRecentHint:SetJustifyH("LEFT")
+  gameModeRecentHint:SetPoint("TOPLEFT", gameModeHdr, "BOTTOMLEFT", 0, -4)
+  gameModeRecentHint:SetText("The last 2 played modes are unchecked by default.")
+  gameModeRecentHint:Hide()
+
   -- Game Mode Buttons — built dynamically from NHS.GAME_MODE_IDS, 2-column grid.
+  -- Each column: [button 126px] [gap 4px] [checkbox 20px] = 150px per column.
   local gameModeButtons = {}
+  local gameModeCheckboxes = {}
   for i, id in ipairs(NHS.GAME_MODE_IDS) do
     local def = NHS.GameModeDefinition(id)
     local btn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
-    btn:SetSize(150, 22)
+    btn:SetSize(126, 22)
     btn:SetText(def.label)
     btn._gameModeId = id
     btn:Hide()
@@ -128,12 +150,12 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     local row = math.floor((i - 1) / 2)
     if col == 0 then
       if row == 0 then
-        btn:SetPoint("TOPLEFT", gameModeHdr, "BOTTOMLEFT", 0, -4)
+        btn:SetPoint("TOPLEFT", gameModeRecentHint, "BOTTOMLEFT", 0, -6)
       else
         btn:SetPoint("TOPLEFT", gameModeButtons[2 * row - 1], "BOTTOMLEFT", 0, -4)
       end
     else
-      btn:SetPoint("LEFT", gameModeButtons[i - 1], "RIGHT", 8, 0)
+      btn:SetPoint("LEFT", gameModeButtons[i - 1], "RIGHT", 32, 0)
     end
     if def.tooltip and def.tooltip ~= "" then
       btn:SetScript("OnEnter", function(self)
@@ -147,6 +169,22 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       end)
     end
     gameModeButtons[i] = btn
+
+    -- Checkbox to the right of the button: include this mode in Random pool.
+    local chk = CreateFrame("CheckButton", nil, f, "UICheckButtonTemplate")
+    chk:SetSize(20, 20)
+    chk:SetPoint("LEFT", btn, "RIGHT", 4, 0)
+    chk._gameModeId = id
+    chk:Hide()
+    chk:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetText("Include in Random", 1, 1, 1)
+      GameTooltip:AddLine("When checked, the Random button may pick this mode.", nil, nil, nil, true)
+      GameTooltip:AddLine("Unchecked by default for the 2 most recently played modes this session.", nil, nil, nil, true)
+      GameTooltip:Show()
+    end)
+    chk:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    gameModeCheckboxes[i] = chk
   end
 
   local gameModeRandomBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
@@ -164,7 +202,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   gameModeRandomBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText("Random", 1, 1, 1)
-    GameTooltip:AddLine("Picks a game mode at random.", nil, nil, nil, true)
+    GameTooltip:AddLine("Picks a game mode at random from the checked modes.", nil, nil, nil, true)
     GameTooltip:Show()
   end)
   gameModeRandomBtn:SetScript("OnLeave", function()
@@ -424,10 +462,15 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   pastRoundsBtn:SetText("Previous Rounds")
   pastRoundsBtn:SetPoint("TOPLEFT", historySectionHdr, "BOTTOMLEFT", 0, -6)
 
+  local viewStatsBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
+  viewStatsBtn:SetSize(308, 26)
+  viewStatsBtn:SetText("Your Stats")
+  viewStatsBtn:SetPoint("TOPLEFT", pastRoundsBtn, "BOTTOMLEFT", 0, -8)
+
   local pastSeekersBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   pastSeekersBtn:SetSize(150, 26)
   pastSeekersBtn:SetText("Previous Seekers")
-  pastSeekersBtn:SetPoint("TOPLEFT", pastRoundsBtn, "BOTTOMLEFT", 0, -8)
+  pastSeekersBtn:SetPoint("TOPLEFT", viewStatsBtn, "BOTTOMLEFT", 0, -8)
 
   local pastHousesBtn = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
   pastHousesBtn:SetSize(150, 26)
@@ -501,6 +544,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   local gameModeInfoMod = NHS.CreateGameModesInfoFrame()
   local gmif = gameModeInfoMod.frame
+  local syncGameModeInfoFromSaved = gameModeInfoMod.syncFromSaved
 
   local savedSizesCallbacks = {}
   local shmod = NHS.CreateSavedSizesFrame(savedSizesCallbacks)
@@ -532,6 +576,10 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   local pastRoundsFrame = pastRoundsMod.frame
   local refreshPastRoundsPanel = pastRoundsMod.refresh
 
+  local statsMod = NHS.CreateStatsFrame()
+  local statsFrame = statsMod.frame
+  local refreshStatsPanel = statsMod.refresh
+
   local randomPickAnim = NHS.CreateRandomPickAnimationFrame()
   local randomPickFrame = randomPickAnim.frame
 
@@ -558,6 +606,16 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     if NHS.RestoreEmbeddedSettingsFrames then
       NHS.RestoreEmbeddedSettingsFrames()
     end
+    syncGameModeInfoFromSaved()
+    gmif:Show()
+  end)
+
+  optionsMod.gameModeDefaultsBtn:SetScript("OnClick", function()
+    optf:Hide()
+    if NHS.RestoreEmbeddedSettingsFrames then
+      NHS.RestoreEmbeddedSettingsFrames()
+    end
+    syncGameModeInfoFromSaved()
     gmif:Show()
   end)
 
@@ -585,6 +643,15 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     else
       refreshGameplayPastHousesPanel()
       ghpf:Show()
+    end
+  end)
+
+  viewStatsBtn:SetScript("OnClick", function()
+    if statsFrame:IsShown() then
+      statsFrame:Hide()
+    else
+      refreshStatsPanel()
+      statsFrame:Show()
     end
   end)
 
@@ -812,7 +879,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     gameModeHdr:SetShown(show)
     gameModeInfoBtn:SetShown(show)
     for _, b in ipairs(gameModeButtons) do b:SetShown(show) end
+    for _, c in ipairs(gameModeCheckboxes) do c:SetShown(show) end
     gameModeRandomBtn:SetShown(show)
+    gameModeRecentHint:SetShown(show)
     houseSelectHdr:SetShown(show)
     lockedRoundHouseLbl:SetShown(show)
     candidateGameHouseLbl:SetShown(show)
@@ -862,6 +931,21 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     return ("%s (%s)"):format(label, nhsCountdownFormatDuration(sec))
   end
 
+  -- Populate main-frame checkboxes from saved defaults, then uncheck recently played modes.
+  local function syncGameModeCheckboxes()
+    NHS.EnsureSavedVars()
+    local recentSet = {}
+    for _, id in ipairs(State.recentlyPlayedModes) do recentSet[id] = true end
+    for _, chk in ipairs(gameModeCheckboxes) do
+      local id = chk._gameModeId
+      local defaultOn = NHSV.gameModeDefaults[id] ~= false
+      chk:SetChecked(defaultOn and not recentSet[id])
+    end
+  end
+
+  -- Track the phase across refreshGameRounds calls to detect fresh PICK_GAME_MODE entry.
+  local lastRefreshPhase = nil
+
   local function refreshGameRounds()
     local leader = B.nhsIsRoundLeader()
     local ingroup = IsInGroup()
@@ -874,9 +958,16 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     local inRound = sess and IsRoundPhase(State.phase)
     local showOrphanEnd = sess and ingroup and not leader
 
+    -- Sync checkboxes when entering PICK_GAME_MODE fresh (not from Back navigation).
+    if pickGameMode and lastRefreshPhase ~= Phase.PICK_GAME_MODE and lastRefreshPhase ~= Phase.PICK_SEEKER then
+      syncGameModeCheckboxes()
+    end
+    lastRefreshPhase = State.phase
+
     randomPickAnim.syncPhase(
       sess,
       pickHouse and State.gameSessionHouseListSource ~= nil,
+      pickGameMode,
       pickSeeker,
       useLeaderUi
     )
@@ -927,7 +1018,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       gameModeHdr:Hide()
       gameModeInfoBtn:Hide()
       for _, b in ipairs(gameModeButtons) do b:Hide() end
+      for _, c in ipairs(gameModeCheckboxes) do c:Hide() end
       gameModeRandomBtn:Hide()
+      gameModeRecentHint:Hide()
       houseSelectHdr:Hide()
       lockedRoundHouseLbl:Hide()
       candidateGameHouseLbl:Hide()
@@ -943,7 +1036,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       gameModeHdr:SetShown(pickGameMode)
       gameModeInfoBtn:SetShown(pickGameMode)
       for _, b in ipairs(gameModeButtons) do b:SetShown(pickGameMode) end
+      for _, c in ipairs(gameModeCheckboxes) do c:SetShown(pickGameMode) end
       gameModeRandomBtn:SetShown(pickGameMode)
+      gameModeRecentHint:SetShown(pickGameMode)
       local showHouseSection = pickHouse or pickGameMode or pickSeeker
         or (inRound and State.phase ~= Phase.SEARCHING and State.phase ~= Phase.REVEALING)
       houseSelectHdr:SetShown(showHouseSection)
@@ -1013,18 +1108,27 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     revealBtn:SetShown(showRevealPhaseRow)
 
     -- End Round is always visible in a session; disabled only during game mode selection.
-    -- Text changes to "Start Next Round" in Revealing (no other controls shown then).
+    -- Text changes to "Start Next Round" in Revealing.
     endRoundBtn:SetShown(sess)
     endRoundBtn:SetText(sess and State.phase == Phase.REVEALING and "Start Next Round" or "End Round")
     endRoundBtn:SetEnabled(mayAct and sess and State.phase ~= Phase.PICK_HOUSE)
     local showBack = sess and (pickGameMode or pickSeeker or (inRound and State.phase == Phase.PENDING)) and mayAct
+    local showPlayAgain = mayAct and sess and State.phase == Phase.REVEALING
     backBtn:SetShown(showBack)
+    playAgainBtn:SetShown(showPlayAgain)
     if showBack then
       backBtn:ClearAllPoints()
       backBtn:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -8)
       endRoundBtn:ClearAllPoints()
       endRoundBtn:SetPoint("LEFT", backBtn, "RIGHT", 8, 0)
       endRoundBtn:SetSize(210, 24)
+    elseif showPlayAgain then
+      endRoundBtn:ClearAllPoints()
+      endRoundBtn:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -8)
+      endRoundBtn:SetSize(308, 24)
+      playAgainBtn:ClearAllPoints()
+      playAgainBtn:SetPoint("TOPLEFT", endRoundBtn, "BOTTOMLEFT", 0, -8)
+      playAgainBtn:SetSize(308, 24)
     else
       endRoundBtn:ClearAllPoints()
       endRoundBtn:SetPoint("TOPLEFT", sessionToggleBtn, "BOTTOMLEFT", 0, -8)
@@ -1105,7 +1209,14 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       searchCustomCountdownBtn:SetEnabled(false)
     elseif pickGameMode then
       for _, b in ipairs(gameModeButtons) do b:SetEnabled(mayAct) end
-      gameModeRandomBtn:SetEnabled(mayAct)
+      for _, c in ipairs(gameModeCheckboxes) do c:SetEnabled(mayAct) end
+      do
+        local anyChecked = false
+        for _, c in ipairs(gameModeCheckboxes) do
+          if c:GetChecked() then anyChecked = true; break end
+        end
+        gameModeRandomBtn:SetEnabled(mayAct and anyChecked)
+      end
       randGameHouseBtn:SetEnabled(false)
       viewGameHousePickBtn:SetEnabled(false)
       confirmGameHouseBtn:SetEnabled(false)
@@ -1316,8 +1427,8 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
             anchor = searchCustomSecEdit
           elseif showHidePhaseRow then
             anchor = hideCustomSecEdit
-          else -- Revealing: no timer controls, house section hidden; End Round is the only element.
-            anchor = endRoundBtn
+          else -- Revealing: no timer controls, house section hidden.
+            anchor = showPlayAgain and playAgainBtn or endRoundBtn
           end
         elseif pickGameMode then
           anchor = gameModeRandomBtn
@@ -1465,68 +1576,17 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
 
   sessionToggleBtn:SetScript("OnClick", function()
     if State.gameSessionActive then
-      if B.nhsIsRoundLeader() and IsInGroup() then
-        B.nhsBroadcastLeaderSync(B.NHS_MSG_GAME_OVER)
-      end
-      B.nhsResetGameSession()
-      print("|cff88ccff[NHS]|r Game session ended.")
+      NHS.LeaderEndSession(refreshGameRounds)
+      return
+    end
+    NHS.LeaderStartSession(function()
+      refreshHouseList()
       refreshGameRounds()
-      return
-    end
-    if IsInGroup() and not B.nhsIsRoundLeader() then
-      return
-    end
-    State.gameSessionActive = true
-    State.phase = Phase.PICK_HOUSE
-    State.gameMode = nil
-    State.gameSessionHouseListSource = nil
-    State.gameHouseCandidateKey = nil
-    State.gameHouseCandidateDisplay = nil
-    State.gameLockedHouseKey = nil
-    State.gameLockedHouseDisplay = nil
-    State.gameLockedHouseLiveEntry = nil
-    State.gameLockedHouseLiveIndex = nil
-    wipe(State.gameHouseHistory)
-    wipe(State.gameHouseRotationUsed)
-    wipe(State.gameCandidateKeys)
-    wipe(State.gameLockedSeekerKeys)
-    State.gameLockedHiderKey = nil
-    wipe(State.gameSeekerHistory)
-    wipe(State.gameRotationUsed)
-    wipe(State.pastRounds)
-    if NHS.ClearCompletedPastRoundsArchive then
-      NHS.ClearCompletedPastRoundsArchive()
-    end
-    refreshHouseList()
-    B.nhsPersistGameSessionToSaved()
-    if IsInGroup() and B.nhsIsRoundLeader() then
-      B.nhsBroadcastLeaderSync(B.NHS_MSG_SESSION_START)
-    end
-    print(
-      "|cff88ccff[NHS]|r Game session started. Choose a house list and confirm a house, then pick a game mode."
-    )
-    refreshGameRounds()
+    end)
   end)
 
   local function nhsLeaderSelectGameMode(modeId)
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_GAME_MODE then
-      return
-    end
-    if not NHS.IsValidGameMode or not NHS.IsValidGameMode(modeId) then
-      return
-    end
-    State.gameMode = modeId
-    State.phase = Phase.PICK_SEEKER
-    local label = NHS.GameModeHudLabel and NHS.GameModeHudLabel(modeId) or modeId
-    if IsInGroup() and B.nhsIsRoundLeader() then
-      B.nhsBroadcastLeaderGameMode(modeId)
-    end
-    print(("|cff88ccff[NHS]|r Game mode: |cffffffff%s|r — pick a seeker."):format(label))
-    B.nhsPersistGameSessionToSaved()
-    if NHS.SyncHiddenRangePoll then
-      NHS.SyncHiddenRangePoll()
-    end
-    refreshGameRounds()
+    NHS.LeaderSelectGameMode(modeId, refreshGameRounds)
   end
 
   -- Game Mode Selection
@@ -1537,9 +1597,42 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     end)
   end
 
+  for _, chk in ipairs(gameModeCheckboxes) do
+    chk:SetScript("OnClick", function()
+      if not State.gameSessionActive or State.phase ~= Phase.PICK_GAME_MODE then return end
+      local mayAct = B.nhsMayUseLeaderGameActions()
+      local anyChecked = false
+      for _, c in ipairs(gameModeCheckboxes) do
+        if c:GetChecked() then anyChecked = true; break end
+      end
+      gameModeRandomBtn:SetEnabled(mayAct and anyChecked)
+    end)
+  end
+
   gameModeRandomBtn:SetScript("OnClick", function()
-    local ids = NHS.GAME_MODE_IDS
-    nhsLeaderSelectGameMode(ids[math.random(#ids)])
+    local elig = {}
+    for _, chk in ipairs(gameModeCheckboxes) do
+      if chk:GetChecked() then
+        local id = chk._gameModeId
+        local def = NHS.GameModeDefinition(id)
+        elig[#elig + 1] = { id = id, display = def and def.label or id }
+      end
+    end
+    if #elig == 0 then return end
+    randomPickAnim.openAnimated("game_mode", "Random game mode", elig, function(winIdx)
+      local pick = elig[winIdx]
+      if not pick then return end
+      if NHSV.useRandomPickAnimation == false then
+        if not State.gameSessionActive or State.phase ~= Phase.PICK_GAME_MODE then return end
+        nhsLeaderSelectGameMode(pick.id)
+      else
+        -- Delay committing so the settled animation state is visible before the frame closes.
+        C_Timer.After(1.0, function()
+          if not State.gameSessionActive or State.phase ~= Phase.PICK_GAME_MODE then return end
+          nhsLeaderSelectGameMode(pick.id)
+        end)
+      end
+    end)
   end)
 
   gameplayGroupCatchUpBtn:SetScript("OnClick", function()
@@ -1696,15 +1789,33 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     State.gameLockedHouseDisplay = State.gameHouseCandidateDisplay
     State.gameHouseCandidateKey = nil
     State.gameHouseCandidateDisplay = nil
+    if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
     State.phase = Phase.PICK_GAME_MODE
     if IsInGroup() and B.nhsIsRoundLeader() then
-      B.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay)
+      B.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, nil, State.gameLockedHouseKey)
       B.nhsBroadcastGameplayHousePin(
         State.gameLockedHouseLiveEntry,
         State.gameLockedHouseLiveIndex,
         State.gameLockedHouseDisplay,
         State.gameLockedHouseKey
       )
+      -- If the new house is in a different neighborhood or subdivision, call it out immediately
+      -- after the house message so players know to head somewhere different.
+      if State.gameLastRoundHouseKey then
+        local newHood, newSub = NHS.SavedHouses.NeighborhoodAndSubFromKey(State.gameLockedHouseKey)
+        local oldHood, oldSub = NHS.SavedHouses.NeighborhoodAndSubFromKey(State.gameLastRoundHouseKey)
+        local hoodDiffers = newHood and oldHood and newHood:lower() ~= oldHood:lower()
+        local subDiffers  = newSub  and oldSub  and newSub:lower()  ~= oldSub:lower()
+        if hoodDiffers or subDiffers then
+          local destination = newSub or newHood
+          if destination then
+            local msg = "[NHS] Subdivision change — head to: " .. destination
+            if #msg <= 255 then
+              B.nhsBroadcastLeaderSync(msg)
+            end
+          end
+        end
+      end
     end
     print(
       ("|cff88ccff[NHS]|r House locked for this round: |cffffffff%s|r — pick a game mode."):format(
@@ -1738,180 +1849,14 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end)
 
   startRoundBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive or State.phase ~= Phase.PICK_SEEKER then
-      return
-    end
-    local required = B.nhsGetRequiredSeekerCount and B.nhsGetRequiredSeekerCount() or 1
-    if #State.gameCandidateKeys ~= required then
-      return
-    end
-    if not State.gameLockedHouseDisplay then
-      print("|cffff8800[NHS]|r Confirm a house first (house selection phase).")
-      return
-    end
-    B.clearFound()
-    wipe(State.gameLockedSeekerKeys)
-    if NHS.IsHiderMode and NHS.IsHiderMode() then
-      -- Hider mode (e.g. Chosen One): candidate is the hider; everyone else in the roster becomes a seeker.
-      local hiderKey = State.gameCandidateKeys[1]
-      State.gameLockedHiderKey = hiderKey
-      local roster = B.nhsGetGroupRoster()
-      for _, m in ipairs(roster) do
-        if m.key ~= hiderKey then
-          State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = m.key
-        end
-      end
-      local hiderName = Ambiguate(hiderKey, "short")
-      -- gameRotationUsed and gameSeekerHistory committed when hide timer starts (HIDING phase)
-      wipe(State.gameCandidateKeys)
-      State.phase = Phase.PENDING
-      local keyStr = table.concat(State.gameLockedSeekerKeys, ",")
-      B.nhsBroadcastRoundStart(keyStr, "[NHS] Hider Selected: " .. hiderName)
-      print(("|cff88ccff[NHS]|r Round started. |cffffffff%s|r is the hider."):format(hiderName))
-    else
-      -- Normal mode: lock in all candidates as seekers.
-      local names = {}
-      for _, k in ipairs(State.gameCandidateKeys) do
-        State.gameLockedSeekerKeys[#State.gameLockedSeekerKeys + 1] = k
-        names[#names + 1] = Ambiguate(k, "short")
-      end
-      -- gameRotationUsed and gameSeekerHistory committed when hide timer starts (HIDING phase)
-      wipe(State.gameCandidateKeys)
-      State.phase = Phase.PENDING
-      local keyStr = table.concat(State.gameLockedSeekerKeys, ",")
-      local nameStr = table.concat(names, ", ")
-      B.nhsBroadcastRoundStart(keyStr, "[NHS] Seeker(s) Selected: " .. nameStr)
-      if #State.gameLockedSeekerKeys > 1 then
-        print(("|cff88ccff[NHS]|r Round started. Seekers: |cffffffff%s|r."):format(nameStr))
-      else
-        print(("|cff88ccff[NHS]|r Round started. |cffffffff%s|r is the seeker."):format(nameStr))
-      end
-    end
-    B.nhsPersistGameSessionToSaved()
-    refreshGameRounds()
+    NHS.LeaderConfirmSeeker(refreshGameRounds)
   end)
 
-  local function nhsLeaderBroadcastRoundPhase(phase)
-    if phase == Phase.HIDING then
-      -- Commit house and seeker rotation/history now that the round is actually underway.
-      if State.gameLockedHouseKey then
-        State.gameHouseRotationUsed[State.gameLockedHouseKey] = true
-        State.gameHouseHistory[#State.gameHouseHistory + 1] = State.gameLockedHouseDisplay
-      end
-      if NHS.IsHiderMode and NHS.IsHiderMode() then
-        if State.gameLockedHiderKey then
-          State.gameRotationUsed[State.gameLockedHiderKey] = true
-          State.gameSeekerHistory[#State.gameSeekerHistory + 1] = "Hider: " .. Ambiguate(State.gameLockedHiderKey, "short")
-        end
-      else
-        local names = {}
-        for _, k in ipairs(State.gameLockedSeekerKeys) do
-          State.gameRotationUsed[k] = true
-          names[#names + 1] = Ambiguate(k, "short")
-        end
-        if #names > 0 then
-          State.gameSeekerHistory[#State.gameSeekerHistory + 1] = table.concat(names, ", ")
-        end
-      end
-      State.phase = Phase.HIDING
-      B.nhsBroadcastLeaderSync(B.NHS_MSG_HIDING)
-      if NHS.PlayHidingPhaseStartSound then
-        NHS.PlayHidingPhaseStartSound()
-      end
-    elseif phase == Phase.SEARCHING then
-      wipe(State.hiderReadySet)
-      State.phase = Phase.SEARCHING
-      local keyParts = {}
-      for _, k in ipairs(State.gameLockedSeekerKeys) do
-        if type(k) == "string" and k ~= "" then
-          keyParts[#keyParts + 1] = k
-        end
-      end
-      if #keyParts > 0 then
-        B.nhsBroadcastLeaderSync(B.NHS_MSG_SEEKING .. table.concat(keyParts, ","))
-      else
-        B.nhsBroadcastLeaderSync("[NHS] The Seeking Begins!")
-      end
-      B.nhsLeaderTryPromoteSeekerForRaidWarn()
-    elseif phase == Phase.REVEALING then
-      State.phase = Phase.REVEALING
-      do
-        -- Build congratulatory chat message: praise surviving hiders, or the seeker(s) if all found.
-        local seekerSet = {}
-        for _, k in ipairs(State.gameLockedSeekerKeys) do seekerSet[k] = true end
-        local hiderNames = {}
-        for _, m in ipairs(B.nhsGetGroupRoster()) do
-          if not seekerSet[m.key] and not State.foundSet[m.key] then
-            hiderNames[#hiderNames + 1] = Ambiguate(m.key, "short")
-          end
-        end
-        table.sort(hiderNames)
-        local function nameList(names)
-          local n = #names
-          if n == 0 then return "" end
-          if n == 1 then return names[1] end
-          if n == 2 then return names[1] .. " and " .. names[2] end
-          local t = {}
-          for i = 1, n - 1 do t[i] = names[i] end
-          return table.concat(t, ", ") .. ", and " .. names[n]
-        end
-        local chatMsg
-        if #hiderNames > 0 then
-          chatMsg = B.NHS_MSG_REVEALING .. " Congratulations to " .. nameList(hiderNames) .. " for staying hidden!"
-        else
-          local seekerNames = {}
-          for _, k in ipairs(State.gameLockedSeekerKeys) do
-            seekerNames[#seekerNames + 1] = Ambiguate(k, "short")
-          end
-          chatMsg = B.NHS_MSG_REVEALING .. " " .. nameList(seekerNames) .. " found everyone!"
-        end
-        if B.nhsBroadcastRevealingPhase then
-          B.nhsBroadcastRevealingPhase(chatMsg)
-        else
-          B.nhsBroadcastLeaderSync(B.NHS_MSG_REVEALING)
-        end
-      end
-      B.nhsLeaderDemoteSeekerAssistantIfWePromoted()
-      if State.seekerMode and B.setSeekerMode then
-        B.setSeekerMode(false)
-      end
-    end
-    if NHS.SyncHiddenRangePoll then
-      NHS.SyncHiddenRangePoll()
-    end
-  end
-
-  NHS.TryLeaderAutoReveal = function()
-    if not State.gameSessionActive or not B.nhsIsRoundLeader() then return end
-    if State.phase ~= Phase.SEARCHING then return end
-    local seekerSet = {}
-    for _, k in ipairs(State.gameLockedSeekerKeys) do
-      seekerSet[k] = true
-    end
-    local hiderCount = 0
-    local unfoundCount = 0
-    for _, m in ipairs(B.nhsGetGroupRoster()) do
-      if not seekerSet[m.key] then
-        hiderCount = hiderCount + 1
-        if not State.foundSet[m.key] then
-          unfoundCount = unfoundCount + 1
-        end
-      end
-    end
-    if hiderCount == 0 or unfoundCount > 0 then return end
-    B.nhsStopPartyCountdown()
-    nhsLeaderBroadcastRoundPhase(Phase.REVEALING)
-    print("|cff88ccff[NHS]|r All hiders found — moving to the revealing phase!")
-    if UI.RefreshAll then UI.RefreshAll() end
-    B.nhsPersistGameSessionToSaved()
-  end
-
+  -- Phase transition happens unconditionally; the Blizzard countdown is cosmetic only.
+  -- Some addons (e.g. BigWigs) hook C_PartyInfo.DoCountdown without passing through its
+  -- return value, which would otherwise block the phase from advancing.
   local function onPresetCountdownClick(self)
-    if not B.nhsMayUseLeaderGameActions() or not (State.gameSessionActive and IsRoundPhase(State.phase)) then
-      return
-    end
-    local sec
-    local presetName
+    local sec, presetName
     if self._isCustom then
       local eb = self._secEdit
       sec = math.floor(tonumber(eb and eb:GetText() or "") or 0)
@@ -1921,46 +1866,19 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
       end
       presetName = "Custom"
     else
-      local idx = self._presetIdx
-      local pr = NHS.ROUND_PRESETS[idx]
-      if not pr then
-        return
-      end
+      local pr = NHS.ROUND_PRESETS[self._presetIdx]
+      if not pr then return end
       presetName = pr.label
       if self._kind == "hide" then
-        sec = pr.hideSec
-        if NHS.GetRoundHideSeconds then
-          sec = NHS.GetRoundHideSeconds(pr.hideSec)
-        end
+        sec = NHS.GetRoundHideSeconds and NHS.GetRoundHideSeconds(pr.hideSec) or pr.hideSec
       else
-        sec = pr.searchSec
-        if NHS.GetRoundSearchSeconds then
-          sec = NHS.GetRoundSearchSeconds(pr.searchSec)
-        end
+        sec = NHS.GetRoundSearchSeconds and NHS.GetRoundSearchSeconds(pr.searchSec) or pr.searchSec
       end
     end
-    -- Phase transition happens unconditionally; the Blizzard countdown is cosmetic only.
-    -- Some addons (e.g. BigWigs) hook C_PartyInfo.DoCountdown without passing through its
-    -- return value, which would otherwise block the phase from advancing.
     local targetPhase = self._kind == "hide" and Phase.HIDING or Phase.SEARCHING
-    local phaseLabel  = self._kind == "hide" and "Hiding" or "Searching"
-    nhsLeaderBroadcastRoundPhase(targetPhase)
-    if self._kind == "search" then
-      State.searchPhaseStartTime = GetTime()
-      State.searchPhaseDuration = sec
-    end
-    print(("|cff88ccff[NHS]|r %s — %s (%d s)."):format(phaseLabel, presetName, sec))
-    local ok, err = B.nhsStartBuiltInCountdown(sec)
-    if not ok then
-      if NHS.debugSync then
-        print(("|cffffcc00[NHS] debugsync|r Countdown returned: ok=%s err=%s"):format(tostring(ok), tostring(err)))
-      end
-    end
-    if UI.RefreshAll then
-      UI.RefreshAll()
-    end
-    B.nhsSeekerAutoModeSyncToPhase()
-    B.nhsPersistGameSessionToSaved()
+    NHS.LeaderStartPhaseCountdown(targetPhase, sec, presetName, function()
+      if UI.RefreshAll then UI.RefreshAll() end
+    end)
   end
 
   for _, b in ipairs(hidePresetBtns) do
@@ -1973,113 +1891,23 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   searchCustomCountdownBtn:SetScript("OnClick", onPresetCountdownClick)
 
   revealBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or not (State.gameSessionActive and IsRoundPhase(State.phase)) then
-      return
-    end
-    if State.phase ~= Phase.SEARCHING then
-      return
-    end
-    B.nhsStopPartyCountdown()
-    nhsLeaderBroadcastRoundPhase(Phase.REVEALING)
-    print("|cff88ccff[NHS]|r Revealing phase started — hiders, show yourselves!")
-    if UI.RefreshAll then
-      UI.RefreshAll()
-    end
-    B.nhsPersistGameSessionToSaved()
+    NHS.LeaderReveal(function()
+      if UI.RefreshAll then UI.RefreshAll() end
+    end)
   end)
 
   local function nhsDoEndRound()
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive
-      or State.phase == Phase.PICK_HOUSE then
-      return
-    end
-    B.nhsAppendPastRoundSnapshotIfActiveRound()
-    B.nhsLeaderDemoteSeekerAssistantIfWePromoted()
-    if NHS.ClearRoundGameMode then
-      NHS.ClearRoundGameMode()
-    else
-      State.gameMode = nil
-    end
-    State.phase = Phase.PICK_HOUSE
-    State.gameHouseCandidateKey = nil
-    State.gameHouseCandidateDisplay = nil
-    State.gameLockedHouseKey = nil
-    State.gameLockedHouseDisplay = nil
-    State.gameLockedHouseLiveEntry = nil
-    State.gameLockedHouseLiveIndex = nil
-    wipe(State.gameLockedSeekerKeys)
-    State.gameLockedHiderKey = nil
-    wipe(State.gameCandidateKeys)
-    B.clearFound()
-    B.nhsStopPartyCountdown()
-    B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_OVER)
-    print("|cff88ccff[NHS]|r Round ended. Pick the next house, then a game mode and seeker.")
-    B.nhsPersistGameSessionToSaved()
-    if State.seekerMode then
-      B.setSeekerMode(false)
-    end
-    refreshGameRounds()
+    NHS.LeaderPerformEndRound(refreshGameRounds)
   end
 
   endRoundBtn:SetScript("OnClick", nhsDoEndRound)
 
+  playAgainBtn:SetScript("OnClick", function()
+    NHS.LeaderPlayAgain(refreshGameRounds)
+  end)
+
   backBtn:SetScript("OnClick", function()
-    if not B.nhsMayUseLeaderGameActions() or not State.gameSessionActive then
-      return
-    end
-    if State.phase == Phase.PICK_GAME_MODE then
-      -- Restore the house as a candidate so the user can re-pick or re-confirm.
-      State.gameHouseCandidateKey = State.gameLockedHouseKey
-      State.gameHouseCandidateDisplay = State.gameLockedHouseDisplay
-      State.gameLockedHouseKey = nil
-      State.gameLockedHouseDisplay = nil
-      State.gameLockedHouseLiveEntry = nil
-      State.gameLockedHouseLiveIndex = nil
-      State.phase = Phase.PICK_HOUSE
-      B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_OVER, false)
-      print("|cff88ccff[NHS]|r Back to house selection.")
-    elseif State.phase == Phase.PICK_SEEKER then
-      if NHS.ClearRoundGameMode then
-        NHS.ClearRoundGameMode()
-      else
-        State.gameMode = nil
-      end
-      wipe(State.gameCandidateKeys)
-      State.phase = Phase.PICK_GAME_MODE
-      B.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false)
-      print("|cff88ccff[NHS]|r Back to game mode selection.")
-    elseif State.phase == Phase.PENDING then
-      -- Restore confirmed seekers/hider as candidates so the user can adjust or re-confirm.
-      if NHS.IsHiderMode and NHS.IsHiderMode() then
-        if State.gameLockedHiderKey then
-          State.gameCandidateKeys[1] = State.gameLockedHiderKey
-        end
-        State.gameLockedHiderKey = nil
-      else
-        for _, k in ipairs(State.gameLockedSeekerKeys) do
-          State.gameCandidateKeys[#State.gameCandidateKeys + 1] = k
-        end
-      end
-      wipe(State.gameLockedSeekerKeys)
-      B.clearFound()
-      B.nhsStopPartyCountdown()
-      if State.seekerMode and B.setSeekerMode then
-        B.setSeekerMode(false)
-      end
-      State.phase = Phase.PICK_SEEKER
-      -- Silently re-sync followers: round-over clears their state, then house + game mode
-      -- brings them back to PICK_SEEKER without any visible chat.
-      B.nhsBroadcastLeaderSync(B.NHS_MSG_ROUND_OVER, false)
-      B.nhsBroadcastHouseLocked(State.gameLockedHouseDisplay, false)
-      if State.gameMode then
-        B.nhsBroadcastLeaderSync(B.NHS_MSG_GAME_MODE .. State.gameMode, false)
-      end
-      print("|cff88ccff[NHS]|r Back to seeker selection.")
-    else
-      return
-    end
-    B.nhsPersistGameSessionToSaved()
-    refreshGameRounds()
+    NHS.LeaderBack(refreshGameRounds)
   end)
 
   refreshBtn:SetScript("OnClick", function()
@@ -2281,6 +2109,17 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   pastRoundsFrame:SetFrameLevel(206)
   pastRoundsFrame:SetToplevel(true)
 
+  statsFrame:ClearAllPoints()
+  if NHSV.statsFramePoint then
+    local sp = NHSV.statsFramePoint
+    statsFrame:SetPoint(sp[1], UIParent, sp[2], sp[3], sp[4])
+  else
+    statsFrame:SetPoint("LEFT", f, "RIGHT", 16, 0)
+  end
+  statsFrame:SetFrameStrata("DIALOG")
+  statsFrame:SetFrameLevel(206)
+  statsFrame:SetToplevel(true)
+
   gsfp:ClearAllPoints()
   if NHSV.gameplaySeekerPickFramePoint then
     local sp = NHSV.gameplaySeekerPickFramePoint
@@ -2309,6 +2148,8 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   UI.gameplayHousePickFrame = ghfp
   UI.gameplayPastHousesFrame = ghpf
   UI.gameplayPastRoundsFrame = pastRoundsFrame
+  UI.statsFrame = statsFrame
+  UI.refreshStatsPanel = refreshStatsPanel
   UI.gameplaySeekerPickFrame = gsfp
   UI.gameplayRandomPickFrame = randomPickFrame
   UI.howToPlayFrame = htpf
@@ -2316,6 +2157,23 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   UI.savedSizesFrame = shf
   UI.viewHouseListBtn = viewHouseListBtn
   UI.frame = f
+
+  -- Refreshes any history popup that's currently open. Callable from gameplay modules
+  -- after state mutations so the display stays live without polling.
+  function NHS.LiveRefreshIfOpen(which)
+    if (not which or which == "rounds") and pastRoundsFrame:IsShown() then
+      refreshPastRoundsPanel()
+    end
+    if (not which or which == "houses") and ghpf:IsShown() then
+      refreshGameplayPastHousesPanel()
+    end
+    if (not which or which == "seekers") and psf:IsShown() then
+      refreshPastSeekersPanel()
+    end
+    if (not which or which == "stats") and statsFrame:IsShown() then
+      refreshStatsPanel()
+    end
+  end
   syncHouseSizePickerEnabled()
   syncHouseListFrameHeight()
   B.nhsSessionHudUpdate()

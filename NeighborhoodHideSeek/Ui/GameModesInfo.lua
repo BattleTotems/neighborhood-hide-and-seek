@@ -1,38 +1,13 @@
 --[[
-  “Game Modes” scrollable help window.
+  "Game Modes" scrollable help window with per-mode default-inclusion checkboxes.
   Loaded after Core.lua; see NeighborhoodHideSeek.toc (Ui/GameModesInfo.lua).
 ]]
-
-
-local function nhsBuildGameModesBody()
-  local lines = {}
-  for _, id in ipairs(NeighborhoodHideSeek.GAME_MODE_IDS) do
-    local def = NeighborhoodHideSeek.GameModeDefinition(id)
-    if def and def.description then
-      local line = ("• %s: %s"):format(def.label, def.description)
-      if def.warning then
-        line = line .. " " .. def.warning
-      end
-      lines[#lines + 1] = line
-    end
-  end
-  return table.concat(lines, "\n")
-end
-
-local NHS_HOW_TO_PLAY_SECTIONS = {
-  {
-    title = "Game Modes",
-    body = nhsBuildGameModesBody(),
-  },
-}
 
 function NeighborhoodHideSeek.CreateGameModesInfoFrame()
   local NHS = NeighborhoodHideSeek
 
   local function ensureSaved()
-    if NHS.EnsureSavedVars then
-      NHS.EnsureSavedVars()
-    end
+    if NHS.EnsureSavedVars then NHS.EnsureSavedVars() end
   end
 
   local htpf = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
@@ -41,9 +16,7 @@ function NeighborhoodHideSeek.CreateGameModesInfoFrame()
   htpf:SetMovable(true)
   htpf:EnableMouse(true)
   htpf:RegisterForDrag("LeftButton")
-  htpf:SetScript("OnDragStart", function(self)
-    self:StartMoving()
-  end)
+  htpf:SetScript("OnDragStart", function(self) self:StartMoving() end)
   htpf:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
     ensureSaved()
@@ -53,9 +26,7 @@ function NeighborhoodHideSeek.CreateGameModesInfoFrame()
   htpf:SetBackdrop({
     bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
     edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-    tile = true,
-    tileSize = 32,
-    edgeSize = 16,
+    tile = true, tileSize = 32, edgeSize = 16,
     insets = { left = 8, right = 8, top = 8, bottom = 8 },
   })
   htpf:SetBackdropColor(0, 0, 0, 0.9)
@@ -73,30 +44,62 @@ function NeighborhoodHideSeek.CreateGameModesInfoFrame()
   htpScroll:SetScrollChild(htpScrollChild)
 
   local textWidth = 318
-  local gapTitleToBody = 6
-  local gapBetweenSections = 14
+  local cbSize = 20
+  local cbGap = 6
+  local modeTextWidth = textWidth - cbSize - cbGap
+  local gapBetweenModes = 8
   local bottomPad = 12
 
-  local yOffset = 0
-  local n = #NHS_HOW_TO_PLAY_SECTIONS
-  for i, sec in ipairs(NHS_HOW_TO_PLAY_SECTIONS) do
-    local hdr = htpScrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    hdr:SetWidth(textWidth)
-    hdr:SetJustifyH("LEFT")
-    hdr:SetText(sec.title .. ":")
-    hdr:SetPoint("TOPLEFT", htpScrollChild, "TOPLEFT", 0, -yOffset)
-    yOffset = yOffset + hdr:GetStringHeight() + gapTitleToBody
+  -- Section header
+  local sectionHdr = htpScrollChild:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  sectionHdr:SetWidth(textWidth)
+  sectionHdr:SetJustifyH("LEFT")
+  sectionHdr:SetText("Game Modes:")
+  sectionHdr:SetPoint("TOPLEFT", htpScrollChild, "TOPLEFT", 0, 0)
 
-    local body = htpScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-    body:SetWidth(textWidth)
-    body:SetJustifyH("LEFT")
-    body:SetJustifyV("TOP")
-    body:SetSpacing(4)
-    body:SetText(sec.body)
-    body:SetPoint("TOPLEFT", htpScrollChild, "TOPLEFT", 0, -yOffset)
-    yOffset = yOffset + body:GetStringHeight()
-    if i < n then
-      yOffset = yOffset + gapBetweenSections
+  local subHint = htpScrollChild:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+  subHint:SetWidth(textWidth)
+  subHint:SetJustifyH("LEFT")
+  subHint:SetText("Use the checkboxes to set which modes are included in Random by default.")
+  subHint:SetPoint("TOPLEFT", htpScrollChild, "TOPLEFT", 0, -(sectionHdr:GetStringHeight() + 4))
+
+  local yOffset = sectionHdr:GetStringHeight() + 4 + subHint:GetStringHeight() + 10
+
+  -- Per-mode rows: [checkbox] [description text]
+  local modeCheckboxes = {}
+  for _, id in ipairs(NHS.GAME_MODE_IDS) do
+    local def = NHS.GameModeDefinition(id)
+    if def and def.description then
+      local chk = CreateFrame("CheckButton", nil, htpScrollChild, "UICheckButtonTemplate")
+      chk:SetSize(cbSize, cbSize)
+      chk:SetPoint("TOPLEFT", htpScrollChild, "TOPLEFT", 0, -yOffset - 1)
+      chk._gameModeId = id
+      chk:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText("Random Default", 1, 1, 1)
+        GameTooltip:AddLine("When checked, this mode is included in the Random pool by default at the start of each round.", nil, nil, nil, true)
+        GameTooltip:AddLine("The main window's checkboxes can still be adjusted per-round.", nil, nil, nil, true)
+        GameTooltip:Show()
+      end)
+      chk:SetScript("OnLeave", function() GameTooltip:Hide() end)
+      chk:SetScript("OnClick", function(self)
+        ensureSaved()
+        NHSV.gameModeDefaults[self._gameModeId] = self:GetChecked() and true or false
+      end)
+      modeCheckboxes[id] = chk
+
+      local txt = htpScrollChild:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+      txt:SetWidth(modeTextWidth)
+      txt:SetJustifyH("LEFT")
+      txt:SetJustifyV("TOP")
+      txt:SetSpacing(4)
+      local line = ("• %s: %s"):format(def.label, def.description)
+      if def.warning then line = line .. " " .. def.warning end
+      txt:SetText(line)
+      txt:SetPoint("TOPLEFT", htpScrollChild, "TOPLEFT", cbSize + cbGap, -yOffset)
+
+      local rowHeight = math.max(txt:GetStringHeight(), cbSize)
+      yOffset = yOffset + rowHeight + gapBetweenModes
     end
   end
 
@@ -105,11 +108,16 @@ function NeighborhoodHideSeek.CreateGameModesInfoFrame()
 
   local htpfCloseBtn = CreateFrame("Button", nil, htpf, "UIPanelCloseButton")
   htpfCloseBtn:SetPoint("TOPRIGHT", -6, -6)
-  htpfCloseBtn:SetScript("OnClick", function()
-    htpf:Hide()
-  end)
+  htpfCloseBtn:SetScript("OnClick", function() htpf:Hide() end)
   htpf._nhsCloseButton = htpfCloseBtn
   htpf:Hide()
 
-  return { frame = htpf }
+  local function syncFromSaved()
+    ensureSaved()
+    for id, chk in pairs(modeCheckboxes) do
+      chk:SetChecked(NHSV.gameModeDefaults[id] ~= false)
+    end
+  end
+
+  return { frame = htpf, syncFromSaved = syncFromSaved }
 end

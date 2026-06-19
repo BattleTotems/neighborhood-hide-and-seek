@@ -7,6 +7,9 @@ local NHS = NeighborhoodHideSeek
 
 local function ensureSavedVars()
   NHSV = NHSV or {}
+  if type(NHSV.charStats) ~= "table" then
+    NHSV.charStats = {}
+  end
   if NHSV.hideGroupFramesInSeeker == nil then
     NHSV.hideGroupFramesInSeeker = true
   end
@@ -59,6 +62,10 @@ local function ensureSavedVars()
   end
   if NHSV.suppressSeekerModeDialog == nil then
     NHSV.suppressSeekerModeDialog = false
+  end
+  -- Per-mode default: true (or nil) = include in Random pool, false = exclude by default.
+  if type(NHSV.gameModeDefaults) ~= "table" then
+    NHSV.gameModeDefaults = {}
   end
 end
 
