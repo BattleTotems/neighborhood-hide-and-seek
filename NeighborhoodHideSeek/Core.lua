@@ -202,10 +202,6 @@ loader:RegisterEvent("GROUP_ROSTER_UPDATE")
 loader:RegisterEvent("PARTY_LEADER_CHANGED")
 loader:SetScript("OnEvent", function(_, event, name)
   if event == "ADDON_LOADED" and name == ADDON_NAME then
-    -- Seed the RNG so math.random is different every session.
-    -- time() alone is seconds-precision; adding GetTime() fractional milliseconds
-    -- prevents identical seeds when the addon loads at the same wall-clock second.
-    math.randomseed(time() + math.floor(GetTime() * 1000) % 10000)
     do
       local pName, pRealm = UnitFullName("player")
       if pName and pName ~= "" then
@@ -230,6 +226,12 @@ loader:SetScript("OnEvent", function(_, event, name)
     )
     wasInGroup = IsInGroup()
   elseif event == "PLAYER_ENTERING_WORLD" then
+    if not NeighborhoodHideSeek.LocalCharacterKey then
+      local pName, pRealm = UnitFullName("player")
+      if pName and pName ~= "" then
+        NeighborhoodHideSeek.LocalCharacterKey = (pRealm and pRealm ~= "") and (pName .. "-" .. pRealm) or pName
+      end
+    end
     NeighborhoodHideSeek.EnsureSavedVars()
     NeighborhoodHideSeek.InitSessionHud()
     NeighborhoodHideSeek.InitMinimapButton()

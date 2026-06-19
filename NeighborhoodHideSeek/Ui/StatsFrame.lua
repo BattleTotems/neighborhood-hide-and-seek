@@ -161,43 +161,45 @@ function NHS.CreateStatsFrame()
 
     local G = "|cffffd700"
     local D = "|cffaaaaaa"
+    local W = "|cff88ccff"
     local R = "|r"
     local lines = {}
     local function add(t) lines[#lines + 1] = t end
     local function gap() add("") end
     local function hdr(t) add(G .. t .. R) end
+    local function v(n) return W .. tostring(n) .. R end
 
     add(D .. Ambiguate(charKey, "short") .. R)
     gap()
 
-    hdr("ROUNDS")
-    add(("  Played: %d  |  Seeker: %d  |  Hider: %d"):format(
-      s.roundsPlayed or 0, s.roundsAsSeeker or 0, s.roundsAsHider or 0))
+    hdr("SESSIONS")
+    add("  Played: " .. v(s.sessionsPlayed or 0))
 
     gap()
-    hdr("WINS & SURVIVALS")
-    add(("  Seeker wins:     %d / %d  (%s)"):format(
-      s.seekerWins or 0, s.roundsAsSeeker or 0, pct(s.seekerWins, s.roundsAsSeeker)))
-    add(("  Hider survivals: %d / %d  (%s)"):format(
-      s.hiderSurvivals or 0, s.roundsAsHider or 0, pct(s.hiderSurvivals, s.roundsAsHider)))
-    if (s.timesFirstFound or 0) > 0 or (s.timesLastFound or 0) > 0 then
-      add(("  First found: %d  |  Last found: %d"):format(
-        s.timesFirstFound or 0, s.timesLastFound or 0))
-    end
-    if (s.hotPotatoWins or 0) > 0 or (s.hotPotatoLosses or 0) > 0 then
-      add(("  Hot Potato  wins: %d  |  losses: %d"):format(
-        s.hotPotatoWins or 0, s.hotPotatoLosses or 0))
-    end
+    hdr("ROUNDS")
+    add(("  Played: %s  |  Seeker: %s  |  Hider: %s"):format(
+      v(s.roundsPlayed or 0), v(s.roundsAsSeeker or 0), v(s.roundsAsHider or 0)))
 
     gap()
     hdr("TIME")
-    add("  Searching:   " .. fmtSeconds(s.secondsSearching))
-    add("  Hiding:      " .. fmtSeconds(s.secondsHiding))
-    add("  In sessions: " .. fmtSeconds(s.totalSessionSeconds))
+    add("  Searching:   " .. v(fmtSeconds(s.secondsSearching)))
+    add("  Hiding:      " .. v(fmtSeconds(s.secondsHiding)))
+    add("  In sessions: " .. v(fmtSeconds(s.totalSessionSeconds)))
 
     gap()
-    hdr("SESSIONS")
-    add(("  Played: %d"):format(s.sessionsPlayed or 0))
+    hdr("WINS & SURVIVALS")
+    add(("  Seeker wins:     %s / %s  (%s)"):format(
+      v(s.seekerWins or 0), v(s.roundsAsSeeker or 0), v(pct(s.seekerWins, s.roundsAsSeeker))))
+    add(("  Hider survivals: %s / %s  (%s)"):format(
+      v(s.hiderSurvivals or 0), v(s.roundsAsHider or 0), v(pct(s.hiderSurvivals, s.roundsAsHider))))
+    if (s.timesFirstFound or 0) > 0 or (s.timesLastFound or 0) > 0 then
+      add(("  First found: %s  |  Last found: %s"):format(
+        v(s.timesFirstFound or 0), v(s.timesLastFound or 0)))
+    end
+    if (s.hotPotatoWins or 0) > 0 or (s.hotPotatoLosses or 0) > 0 then
+      add(("  Hot Potato  wins: %s  |  losses: %s"):format(
+        v(s.hotPotatoWins or 0), v(s.hotPotatoLosses or 0)))
+    end
 
     if type(s.modeCounts) == "table" and next(s.modeCounts) then
       local modeList = {}
@@ -214,42 +216,26 @@ function NHS.CreateStatsFrame()
         for _, entry in ipairs(modeList) do
           local modeId = entry.id
           local label = (NHS.GameModeHudLabel and NHS.GameModeHudLabel(modeId)) or modeId
-          add(("  %s (%d)"):format(label, entry.count))
+          add(("  %s (%s)"):format(label, v(entry.count)))
           if modeId == "hot_potato" then
             local wins   = s.hotPotatoWins   or 0
             local losses = s.hotPotatoLosses or 0
             local total  = entry.count
-            add(("    Won:  %d / %d  (%s)"):format(wins,   total, pct(wins,   total)))
-            add(("    Lost: %d / %d  (%s)"):format(losses, total, pct(losses, total)))
+            add(("    Won:  %s / %s  (%s)"):format(v(wins),   v(total), v(pct(wins,   total))))
+            add(("    Lost: %s / %s  (%s)"):format(v(losses), v(total), v(pct(losses, total))))
           else
             local seekRounds = (type(s.modeSeekerRounds)   == "table" and s.modeSeekerRounds[modeId])   or 0
             local hideRounds = (type(s.modeHiderRounds)    == "table" and s.modeHiderRounds[modeId])    or 0
             local seekWins   = (type(s.modeSeekerWins)     == "table" and s.modeSeekerWins[modeId])     or 0
             local hideWins   = (type(s.modeHiderSurvivals) == "table" and s.modeHiderSurvivals[modeId]) or 0
             if seekRounds > 0 then
-              add(("    Seeking: %d / %d  (%s)"):format(seekWins, seekRounds, pct(seekWins, seekRounds)))
+              add(("    Seeking: %s / %s  (%s)"):format(v(seekWins), v(seekRounds), v(pct(seekWins, seekRounds))))
             end
             if hideRounds > 0 then
-              add(("    Hiding:  %d / %d  (%s)"):format(hideWins, hideRounds, pct(hideWins, hideRounds)))
+              add(("    Hiding:  %s / %s  (%s)"):format(v(hideWins), v(hideRounds), v(pct(hideWins, hideRounds))))
             end
           end
         end
-      end
-    end
-
-    if type(s.neighborhoodCounts) == "table" and next(s.neighborhoodCounts) then
-      gap()
-      hdr("BY NEIGHBORHOOD")
-      for _, e in ipairs(topNIntTable(s.neighborhoodCounts, 5)) do
-        add(("  %s: %d"):format(tostring(e.key), e.count))
-      end
-    end
-
-    if type(s.houseCounts) == "table" and next(s.houseCounts) then
-      gap()
-      hdr("BY HOUSE")
-      for _, e in ipairs(topNEncounterTable(s.houseCounts, 5)) do
-        add(("  %s: %d"):format(tostring(e.disp), e.count))
       end
     end
 
@@ -257,7 +243,23 @@ function NHS.CreateStatsFrame()
       gap()
       hdr("PLAYED WITH")
       for _, e in ipairs(topNEncounterTable(s.playerEncounters, 8)) do
-        add(("  %s: %d"):format(tostring(e.disp), e.count))
+        add(("  %s: %s"):format(tostring(e.disp), v(e.count)))
+      end
+    end
+
+    if type(s.neighborhoodCounts) == "table" and next(s.neighborhoodCounts) then
+      gap()
+      hdr("BY NEIGHBORHOOD")
+      for _, e in ipairs(topNIntTable(s.neighborhoodCounts, 5)) do
+        add(("  %s: %s"):format(tostring(e.key), v(e.count)))
+      end
+    end
+
+    if type(s.houseCounts) == "table" and next(s.houseCounts) then
+      gap()
+      hdr("BY HOUSE")
+      for _, e in ipairs(topNEncounterTable(s.houseCounts, 5)) do
+        add(("  %s:  %s"):format(v(e.count), tostring(e.disp)))
       end
     end
 

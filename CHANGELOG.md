@@ -27,7 +27,6 @@ All notable changes to Neighborhood Hide and Seek are documented in this file.
 - Fixed issue with some gameplay logic being tied to the game control view
 - Late player added during Chosen One are added to seekers
 - Fixed a desync issue with players enter/leaving houses during certain game phases
-- Applying a random seed on addon launch for better random values in the sessions
 
 
 ## [1.2.5]
