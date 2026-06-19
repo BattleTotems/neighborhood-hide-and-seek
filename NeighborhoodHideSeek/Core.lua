@@ -119,6 +119,19 @@ local State = {
   -- Unix timestamp (time()) of the most recent phase start. Flushed to totalSessionSeconds at every
   -- phase transition; cleared at session end. Losing this on logout only drops the current phase's time.
   statsPhaseStartTime = nil,
+  -- Per-round time tracking for role-aware search stats and finding-spot stat.
+  -- hidingSpotStartTime: GetTime() when hider entered hiding phase; cleared on "I'm Hidden" or SEARCHING start.
+  hidingSpotStartTime = nil,
+  -- hidingSpotTrackedForRound: true once HIDING phase has been processed for this round; prevents re-sync restarts.
+  hidingSpotTrackedForRound = false,
+  -- searchRoleStartTime: GetTime() when local player's current role began during search phase.
+  searchRoleStartTime = nil,
+  -- searchRoleIsSeeker: whether the active search-role period is as a seeker (vs hider).
+  searchRoleIsSeeker = false,
+  -- Round-level accumulators; flushed into charStats at round end by nhsAccumulateRoundStats.
+  roundSearchingSeconds = 0,
+  roundHidingSeconds = 0,
+  roundFindingSpotSeconds = 0,
 }
 
 NeighborhoodHideSeek.State = State

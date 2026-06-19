@@ -339,6 +339,15 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
   end
   C.State.foundSet[foundKey] = true
   C.State.foundOrder[#C.State.foundOrder + 1] = foundKey
+  -- If the local player was just found, stop their hiding clock (no longer hiding).
+  -- For Conquer, the block below will restart the clock as seeker; for all other modes
+  -- the clock simply stops here.
+  do
+    local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+    if myKey and C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, foundKey) then
+      if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+    end
+  end
   if NHS.OvertimeOnFound then
     NHS.OvertimeOnFound()
   end
@@ -360,6 +369,12 @@ local function nhsApplyFoundSyncFromChat(senderName, text)
       if not alreadyIn then
         targetList[#targetList + 1] = foundKey
       end
+    end
+    -- If the local player was just found, switch their role clock from hiding to seeking.
+    local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+    if myKey and C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, foundKey) then
+      if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+      if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(true) end
     end
   end
   if NHS.RefreshGameSessionUi then
@@ -420,6 +435,8 @@ local function nhsBroadcastHiderReady()
   local msg = NHS_MSG_HIDER_READY .. myKey
   if #msg > 255 then return end
   C.State.hiderReadySet[myKey] = true
+  -- Player declared they're hidden: commit finding-spot time up to this moment.
+  if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
   nhsSendAddonSyncPayload(msg)
   if NHS.RefreshGameSessionUi then
     NHS.RefreshGameSessionUi()
@@ -547,6 +564,18 @@ local function nhsApplyHotPotatoSwap(senderName, text)
   targetList[1] = newSeekerKey
   -- No-tagback: the new seeker cannot immediately tag back the old seeker.
   C.State.hotPotatoTaggedBy = oldSeekerKey
+  -- Role-switch time tracking: only the two players whose roles changed need an update.
+  do
+    local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+    if myKey and NHS.FlushSearchRoleClock and NHS.StartSearchRoleClock then
+      local iWasSeeker = C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, oldSeekerKey)
+      local iAmNewSeeker = C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, newSeekerKey)
+      if iWasSeeker or iAmNewSeeker then
+        NHS.FlushSearchRoleClock()
+        NHS.StartSearchRoleClock(iAmNewSeeker and true or false)
+      end
+    end
+  end
   -- All players stay in seeker mode throughout Hot Potato; no transitions needed here.
   if NHS.RefreshGameSessionUi then
     NHS.RefreshGameSessionUi()
@@ -698,6 +727,10 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     C.State.remoteGameMode = nil
     C.State.followerSearchPhaseStartTime = nil
     wipe(C.State.gameRoundInitialSeekerKeys)
+    -- Clear per-round time state; accumulate already committed and reset the buckets.
+    C.State.hidingSpotStartTime = nil
+    C.State.hidingSpotTrackedForRound = false
+    C.State.searchRoleStartTime = nil
     if C.State.seekerMode and NHS.SetSeekerMode then
       NHS.SetSeekerMode(false)
     end
@@ -712,6 +745,12 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     if NHS.EndPhaseClock then NHS.EndPhaseClock() end
     C.State.followerSearchPhaseStartTime = nil
     wipe(C.State.gameRoundInitialSeekerKeys)
+    C.State.hidingSpotStartTime = nil
+    C.State.hidingSpotTrackedForRound = false
+    C.State.searchRoleStartTime = nil
+    C.State.roundSearchingSeconds = 0
+    C.State.roundHidingSeconds = 0
+    C.State.roundFindingSpotSeconds = 0
     C.State.remoteSessionActive = false
     C.State.phase = Phase.NONE
     wipe(C.State.gameSeekerHistory)
@@ -731,6 +770,14 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       if NHS.PlayHidingPhaseStartSound then
         NHS.PlayHidingPhaseStartSound()
       end
+      if not C.State.hidingSpotTrackedForRound then
+        C.State.hidingSpotTrackedForRound = true
+        C.State.roundSearchingSeconds = 0
+        C.State.roundHidingSeconds = 0
+        C.State.roundFindingSpotSeconds = 0
+        C.State.searchRoleStartTime = nil
+        if NHS.StartHidingSpotClock then NHS.StartHidingSpotClock() end
+      end
     elseif text:match("^%[NHS%]%s*Hiding Starts Now%s*$") then
       C.State.remoteSessionActive = true
       if IsRoundPhase(C.State.phase) then
@@ -739,15 +786,36 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
         if NHS.PlayHidingPhaseStartSound then
           NHS.PlayHidingPhaseStartSound()
         end
+        if not C.State.hidingSpotTrackedForRound then
+          C.State.hidingSpotTrackedForRound = true
+          C.State.roundSearchingSeconds = 0
+          C.State.roundHidingSeconds = 0
+          C.State.roundFindingSpotSeconds = 0
+          C.State.searchRoleStartTime = nil
+          if NHS.StartHidingSpotClock then NHS.StartHidingSpotClock() end
+        end
       end
     else
       local seekKey = text:match("^%[NHS%]%s*The Seeking Begins!:%s*(.+)%s*$")
       if seekKey then
         wipe(C.State.hiderReadySet)
         nhsRemoteFollowerSyncRoundState(seekKey, Phase.SEARCHING)
-        -- Start timer only on first receipt; re-syncs (same round still SEARCHING) are no-ops.
+        -- Start timers only on first receipt; re-syncs (same round still SEARCHING) are no-ops.
         if C.State.phase == Phase.SEARCHING and not C.State.followerSearchPhaseStartTime then
           C.State.followerSearchPhaseStartTime = GetTime()
+          if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+          do
+            local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+            local iAmSeeker = false
+            if myKey then
+              for _, k in ipairs(C.State.remoteSeekerKeys) do
+                if C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, k) then
+                  iAmSeeker = true; break
+                end
+              end
+            end
+            if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(iAmSeeker) end
+          end
         end
       elseif text:match("^%[NHS%]%s*The Seeking Begins!%s*$") then
         C.State.remoteSessionActive = true
@@ -758,12 +826,27 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
         end
         if C.State.phase == Phase.SEARCHING and not C.State.followerSearchPhaseStartTime then
           C.State.followerSearchPhaseStartTime = GetTime()
+          if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+          do
+            local myKey = C.nhsLocalPlayerSortKey and C.nhsLocalPlayerSortKey()
+            local iAmSeeker = false
+            if myKey then
+              for _, k in ipairs(C.State.remoteSeekerKeys) do
+                if C.nhsRosterIdentityEqual and C.nhsRosterIdentityEqual(myKey, k) then
+                  iAmSeeker = true; break
+                end
+              end
+            end
+            if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(iAmSeeker) end
+          end
         end
       elseif text:match("^%[NHS%]%s*The Revealing Begins!%s*$") then
         C.State.remoteSessionActive = true
         if IsRoundPhase(C.State.phase) then
           if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
           C.State.phase = Phase.REVEALING
+          if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+          if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
           if C.State.seekerMode and NHS.SetSeekerMode then
             NHS.SetSeekerMode(false)
           end

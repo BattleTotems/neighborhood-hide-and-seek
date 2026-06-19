@@ -167,18 +167,19 @@ function NHS.CreateStatsFrame()
 
     gap()
     hdr("TIME")
-    add("  Searching:   " .. v(fmtSeconds(s.secondsSearching)))
-    add("  Hiding:      " .. v(fmtSeconds(s.secondsHiding)))
-    add("  In sessions: " .. v(fmtSeconds(s.totalSessionSeconds)))
+    add("  Finding Spot: " .. v(fmtSeconds(s.secondsFindingSpot)))
+    add("  Hiding:          " .. v(fmtSeconds(s.secondsHiding)))
+    add("  Seeking:         " .. v(fmtSeconds(s.secondsSearching)))
+    add("  In Sessions:    " .. v(fmtSeconds(s.totalSessionSeconds)))
 
     gap()
-    hdr("WINS & SURVIVALS")
-    add(("  Seeker wins:     %s / %s  (%s)"):format(
+    hdr("WINS")
+    add(("  Wins as Seeker:     %s / %s  (%s)"):format(
       v(s.seekerWins or 0), v(s.roundsAsSeeker or 0), v(pct(s.seekerWins, s.roundsAsSeeker))))
-    add(("  Hider survivals: %s / %s  (%s)"):format(
+    add(("  Wins as Hider: %s / %s  (%s)"):format(
       v(s.hiderSurvivals or 0), v(s.roundsAsHider or 0), v(pct(s.hiderSurvivals, s.roundsAsHider))))
     if (s.timesFirstFound or 0) > 0 or (s.timesLastFound or 0) > 0 then
-      add(("  First found: %s  |  Last found: %s"):format(
+      add(("  First Found: %s  |  Last Found: %s"):format(
         v(s.timesFirstFound or 0), v(s.timesLastFound or 0)))
     end
 
@@ -203,10 +204,10 @@ function NHS.CreateStatsFrame()
           local seekWins   = (type(s.modeSeekerWins)     == "table" and s.modeSeekerWins[modeId])     or 0
           local hideWins   = (type(s.modeHiderSurvivals) == "table" and s.modeHiderSurvivals[modeId]) or 0
           if seekRounds > 0 then
-            add(("    Seeking: %s / %s  (%s)"):format(v(seekWins), v(seekRounds), v(pct(seekWins, seekRounds))))
+            add(("    Wins as Seeker: %s / %s  (%s)"):format(v(seekWins), v(seekRounds), v(pct(seekWins, seekRounds))))
           end
           if hideRounds > 0 then
-            add(("    Hiding:  %s / %s  (%s)"):format(v(hideWins), v(hideRounds), v(pct(hideWins, hideRounds))))
+            add(("    Wins as Hider:  %s / %s  (%s)"):format(v(hideWins), v(hideRounds), v(pct(hideWins, hideRounds))))
           end
         end
       end

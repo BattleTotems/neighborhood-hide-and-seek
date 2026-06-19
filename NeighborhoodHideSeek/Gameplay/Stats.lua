@@ -28,6 +28,7 @@ local function nhsEnsureCharStats(charKey)
   s.timesLastFound      = s.timesLastFound      or 0
   s.secondsSearching    = s.secondsSearching    or 0
   s.secondsHiding       = s.secondsHiding       or 0
+  s.secondsFindingSpot  = s.secondsFindingSpot  or 0
   s.totalSessionSeconds = s.totalSessionSeconds or 0
   -- Migrate from old separate sessionsStarted/sessionsCompleted to a single sessionsPlayed.
   if not s.sessionsPlayed then
@@ -92,6 +93,57 @@ local function nhsEndPhaseClock()
     end
   end
   State.statsPhaseStartTime = nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Hiding-spot clock  (HIDING phase, hiders only; ends on "I'm Hidden" or SEARCHING start)
+-- ---------------------------------------------------------------------------
+
+local function nhsStartHidingSpotClock()
+  if not IsInGroup() then return end
+  local myKey = NHS.LocalPlayerSortKey and NHS.LocalPlayerSortKey()
+  if not myKey then return end
+  local seekerKeys = State.gameSessionActive and State.gameLockedSeekerKeys
+    or (State.remoteSessionActive and State.remoteSeekerKeys)
+    or {}
+  for _, k in ipairs(seekerKeys) do
+    if NHS.GroupSortKeysEquivalent and NHS.GroupSortKeysEquivalent(myKey, k) then
+      return  -- player is a seeker; no spot-finding time to track
+    end
+  end
+  State.hidingSpotStartTime = GetTime()
+end
+
+local function nhsFlushHidingSpotClock()
+  if not State.hidingSpotStartTime then return end
+  local elapsed = math.max(0, math.floor(GetTime() - State.hidingSpotStartTime))
+  if elapsed > 0 then
+    State.roundFindingSpotSeconds = (State.roundFindingSpotSeconds or 0) + elapsed
+  end
+  State.hidingSpotStartTime = nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Search-phase role clock  (tracks seeker vs hider time within SEARCHING; handles role changes)
+-- ---------------------------------------------------------------------------
+
+local function nhsStartSearchRoleClock(isSeeker)
+  if not IsInGroup() then return end
+  State.searchRoleStartTime = GetTime()
+  State.searchRoleIsSeeker = isSeeker and true or false
+end
+
+local function nhsFlushSearchRoleClock()
+  if not State.searchRoleStartTime then return end
+  local elapsed = math.max(0, math.floor(GetTime() - State.searchRoleStartTime))
+  if elapsed > 0 then
+    if State.searchRoleIsSeeker then
+      State.roundSearchingSeconds = (State.roundSearchingSeconds or 0) + elapsed
+    else
+      State.roundHidingSeconds = (State.roundHidingSeconds or 0) + elapsed
+    end
+  end
+  State.searchRoleStartTime = nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -240,21 +292,23 @@ local function nhsAccumulateRoundStats()
     end
   end
 
-  -- Search-phase time (uses original start time to survive Overtime resets).
-  local elapsed = 0
-  if State.gameSessionActive then
-    local t = State.searchPhaseOriginalStartTime or State.searchPhaseStartTime
-    if t then elapsed = math.max(0, math.floor(GetTime() - t)) end
-  elseif State.remoteSessionActive and State.followerSearchPhaseStartTime then
-    elapsed = math.max(0, math.floor(GetTime() - State.followerSearchPhaseStartTime))
+  -- Finding-spot time (hiders only: time spent during hiding phase finding their spot).
+  nhsFlushHidingSpotClock()
+  if (State.roundFindingSpotSeconds or 0) > 0 then
+    s.secondsFindingSpot = s.secondsFindingSpot + State.roundFindingSpotSeconds
   end
-  if elapsed > 0 then
-    if iWasSeeker then
-      s.secondsSearching = s.secondsSearching + elapsed
-    else
-      s.secondsHiding = s.secondsHiding + elapsed
-    end
+  State.roundFindingSpotSeconds = 0
+
+  -- Search-phase role time (actual time spent as seeker vs hider, handles mid-round role changes).
+  nhsFlushSearchRoleClock()
+  if (State.roundSearchingSeconds or 0) > 0 then
+    s.secondsSearching = s.secondsSearching + State.roundSearchingSeconds
   end
+  if (State.roundHidingSeconds or 0) > 0 then
+    s.secondsHiding = s.secondsHiding + State.roundHidingSeconds
+  end
+  State.roundSearchingSeconds = 0
+  State.roundHidingSeconds = 0
 
   -- House stats
   local houseKey, houseDisplay
@@ -304,3 +358,7 @@ NHS.StartPhaseClock      = nhsStartPhaseClock
 NHS.EndPhaseClock        = nhsEndPhaseClock
 NHS.RecordSessionStart   = nhsRecordSessionStart
 NHS.AccumulateRoundStats = nhsAccumulateRoundStats
+NHS.StartHidingSpotClock = nhsStartHidingSpotClock
+NHS.FlushHidingSpotClock = nhsFlushHidingSpotClock
+NHS.StartSearchRoleClock = nhsStartSearchRoleClock
+NHS.FlushSearchRoleClock = nhsFlushSearchRoleClock

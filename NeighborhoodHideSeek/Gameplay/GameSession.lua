@@ -576,6 +576,12 @@ end
 
 local function nhsResetGameSession()
   State.statsPhaseStartTime = nil  -- nhsEndPhaseClock() already flushed before this is called
+  State.hidingSpotStartTime = nil
+  State.hidingSpotTrackedForRound = false
+  State.searchRoleStartTime = nil
+  State.roundSearchingSeconds = 0
+  State.roundHidingSeconds = 0
+  State.roundFindingSpotSeconds = 0
   if NHS.ClearRevealMarkers then
     NHS.ClearRevealMarkers()
   end
@@ -988,6 +994,10 @@ local function nhsLeaderPerformEndRound(onRefreshUI)
     return
   end
   nhsAppendPastRoundSnapshotIfActiveRound()
+  -- Clear per-round time state now that accumulation has committed and reset the buckets.
+  State.hidingSpotTrackedForRound = false
+  State.hidingSpotStartTime = nil
+  State.searchRoleStartTime = nil
   nhsLeaderDemoteSeekerAssistantIfWePromoted()
   if NHS.ClearRoundGameMode then
     NHS.ClearRoundGameMode()
@@ -1074,6 +1084,9 @@ local function nhsLeaderPlayAgain(onRefreshUI)
   -- ROUND_OVER must fire first: without it, followers in the same round phase with the same
   -- seeker key would treat the incoming Round Start as a re-sync and skip clearFound().
   nhsAppendPastRoundSnapshotIfActiveRound()
+  State.hidingSpotTrackedForRound = false
+  State.hidingSpotStartTime = nil
+  State.searchRoleStartTime = nil
   nhsLeaderDemoteSeekerAssistantIfWePromoted()
   nhsStopPartyCountdown()
   if bmf.nhsBroadcastLeaderSync and bmf.NHS_MSG_ROUND_OVER then
@@ -1189,6 +1202,13 @@ local function nhsLeaderBroadcastRoundPhase(phase)
     end
     NHS.FlushPhaseClock()
     State.phase = Phase.HIDING
+    -- Reset per-round time accumulators and start hiding-spot clock for hiders.
+    State.roundSearchingSeconds = 0
+    State.roundHidingSeconds = 0
+    State.roundFindingSpotSeconds = 0
+    State.hidingSpotTrackedForRound = true
+    State.searchRoleStartTime = nil
+    if NHS.StartHidingSpotClock then NHS.StartHidingSpotClock() end
     if bmf.nhsBroadcastLeaderSync then bmf.nhsBroadcastLeaderSync(bmf.NHS_MSG_HIDING) end
     nhsPlayHidingPhaseStartSound()
   elseif phase == Phase.SEARCHING then
@@ -1202,6 +1222,20 @@ local function nhsLeaderBroadcastRoundPhase(phase)
     end
     NHS.FlushPhaseClock()
     State.phase = Phase.SEARCHING
+    -- Flush hiding-spot clock and start the search-role clock for the local player.
+    if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+    do
+      local myKey = NHS.LocalPlayerSortKey and NHS.LocalPlayerSortKey()
+      local iAmSeeker = false
+      if myKey then
+        for _, k in ipairs(State.gameLockedSeekerKeys) do
+          if NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(myKey, k) then
+            iAmSeeker = true; break
+          end
+        end
+      end
+      if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(iAmSeeker) end
+    end
     local keyParts = {}
     for _, k in ipairs(State.gameLockedSeekerKeys) do
       if type(k) == "string" and k ~= "" then
@@ -1219,6 +1253,8 @@ local function nhsLeaderBroadcastRoundPhase(phase)
   elseif phase == Phase.REVEALING then
     NHS.FlushPhaseClock()
     State.phase = Phase.REVEALING
+    if NHS.FlushHidingSpotClock then NHS.FlushHidingSpotClock() end
+    if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
     do
       -- Build congratulatory chat message: praise surviving hiders, or the seeker(s) if all found.
       local seekerSet = {}

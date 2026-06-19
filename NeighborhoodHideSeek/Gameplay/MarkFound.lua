@@ -160,6 +160,9 @@ local function markTargetFound(opts)
       State.remoteSeekerKeys[1] = key
     end
     State.hotPotatoTaggedBy = myKey
+    -- Local player (old seeker) is now a hider; commit their seeking time and restart as hider.
+    if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+    if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(false) end
     -- All players stay in seeker mode throughout Hot Potato; no transition needed here.
     print(("|cff88ff88[NHS]|r Hot Potato! %s is now the seeker."):format(disp))
     if NHS.SyncHiddenRangePoll then NHS.SyncHiddenRangePoll() end
@@ -191,6 +194,13 @@ local function markTargetFound(opts)
       elseif State.remoteSessionActive then
         State.remoteSeekerKeys[#State.remoteSeekerKeys + 1] = key
       end
+    end
+    -- If the local player is the one who was just found, switch their role clock.
+    -- (The seeker who marked them found handles this via nhsApplyFoundSyncFromChat echo.)
+    local myKey = NHS.LocalPlayerSortKey and NHS.LocalPlayerSortKey()
+    if myKey and NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(myKey, key) then
+      if NHS.FlushSearchRoleClock then NHS.FlushSearchRoleClock() end
+      if NHS.StartSearchRoleClock then NHS.StartSearchRoleClock(true) end
     end
   end
   print(("|cff88ff88[NHS]|r Marked found: %s"):format(disp))

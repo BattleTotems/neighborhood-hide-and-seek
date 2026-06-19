@@ -119,14 +119,17 @@ sessions ended in non-round phases (e.g., PICK_HOUSE) do not produce spurious st
 | Stat | Notes |
 |---|---|
 | `modeCounts` | `{ ["Mode Name"] = N }` — rounds per mode |
+| `modeSeekerRounds` | `{ ["Mode Name"] = N }` — rounds played as initial seeker per mode |
+| `modeHiderRounds` | `{ ["Mode Name"] = N }` — rounds played as initial hider per mode |
 | `modeSeekerWins` | `{ ["Mode Name"] = N }` — seeker wins per mode |
-| `modeHiderSurvivals` | `{ ["Mode Name"] = N }` — survivals per mode |
+| `modeHiderSurvivals` | `{ ["Mode Name"] = N }` — hider survivals per mode |
 
 ### Time
 | Stat | Notes |
 |---|---|
-| `secondsSearching` | Cumulative search-phase seconds when local player was a seeker |
-| `secondsHiding` | Cumulative search-phase seconds when local player was a hider (decision: only searching phase counts, not hiding-countdown phase) |
+| `secondsSearching` | Cumulative seconds the player spent as a **seeker** during the search phase. Tracks actual role at each moment: for Conquer, commits hider time when found and restarts as seeker; for Hot Potato, commits on every swap. |
+| `secondsHiding` | Cumulative seconds the player spent as a **hider** during the search phase. Same role-change tracking as `secondsSearching`. |
+| `secondsFindingSpot` | Cumulative seconds spent finding a hiding spot during the **hiding phase** (hiders only). Timer starts when HIDING begins and stops when the player presses "I'm Hidden!" or the SEARCHING phase starts, whichever comes first. |
 | `totalSessionSeconds` | Sum of all game session wall-clock durations |
 
 ### Session
@@ -185,20 +188,34 @@ reads this, not `gameLockedSeekerKeys`, to determine original seeker set.
 
 ### Mode-by-mode analysis
 
-| Mode | Role complexity | foundOrder meaning | Stat notes |
-|---|---|---|---|
-| **Normal / Normal Plus / Hot&Cold / Bloodhound / Lightning / Overtime / Toy&Seek** | Static | Hiders found, in order | Standard accumulation |
-| **Paired** | Two seekers (static) | Same as normal | Track both initial seekers |
-| **Conquer** | Found hiders join seeker team mid-round | Hiders found/converted, in order | Use initial seeker; `gameLockedSeekerKeys` grows during round |
-| **Chosen One** | One hider; everyone else seeks from the start | Seekers who found the hider (reversed) | `gameLockedHiderKey` = the one hider |
-| **Sardines** | One sardine (hider); seekers who find sardine join it | Seekers who joined the sardine (NOT hiders found) | `foundOrder` meaning is inverted — joining seekers are added, not the sardine. Sardine "wins" if not everyone joins before time. Treat joining seekers as "found by sardine." |
-| **Hot Potato** | Seeker swaps on tag; no tagbacks | Old seekers (in pass order) | Final seeker = `gameLockedSeekerKeys[1]` at REVEALING = loser. Track `hotPotatoLosses` / `hotPotatoWins` separately. |
+| Mode | Role complexity | `foundOrder` meaning | Seeker win condition | Hider win condition |
+|---|---|---|---|---|
+| **Normal / Normal Plus / Hot&Cold / Bloodhound / Lightning / Overtime / Toying Around** | Static: one seeker, rest hide | Hiders found, in order | All hiders found at reveal | Not found at reveal |
+| **Paired** | Two seekers (static), rest hide | Hiders found, in order | All hiders found at reveal | Not found at reveal |
+| **Conquer** | Initial seeker only; found hiders join seeker team mid-round | Hiders found/converted, in order | All hiders found (initial seeker only) | Not found at reveal; converted seekers receive **no win or loss** |
+| **Chosen One** | One hider (`gameLockedHiderKey`); everyone else seeks | Hider found (one entry) | Hider is found | Not found at reveal |
+| **Sardines** | One sardine (hider); seekers who find sardine join the pile | Seekers who **joined** the sardine (NOT hiders found) | **Individually**: your key is in `foundOrder` — you joined the pile | At least one seeker is still searching at round end (`not allSeekersJoined`) |
+| **Hot Potato** | Initial seeker holds potato; seekers swap on tag (no tagbacks) | Players who held and passed the potato | Not the final seeker at reveal (`gameLockedSeekerKeys[1]`) → `seekerWins` | Not the final seeker at reveal → `hiderSurvivals` |
+
+#### Conquer converted seekers
+A hider who gets found mid-round and joins the seeker team is counted in `modeHiderRounds` (they
+started as a hider) but receives **no win or loss**: `iWasFound = true` blocks hider survival credit,
+and `iWasSeeker = false` blocks seeker win credit. Their hider round inflates the denominator in
+the `Hiding: X / Y` display without contributing to the numerator, which accurately reflects that
+they were caught.
+
+#### Hot Potato role accounting
+Initial role (`iWasSeeker` / `iWasHider`) is still captured from `initSeekers` as normal. The win
+check is purely: are you the final seeker at reveal? If not, the win goes into `seekerWins` or
+`hiderSurvivals` based on whichever initial role you held. No separate `hotPotatoWins` /
+`hotPotatoLosses` counters exist — Hot Potato feeds directly into the same per-role tables as
+every other mode.
 
 ### "Times you were the last hider found" definition
 This stat means: you were a hider, you were found (your key appears in `foundOrder`), AND your
-key is the last entry in `foundOrder`, AND `unfoundCount == 0` at reveal (everyone was found —
-no survivors). If there are survivors, the last found is not meaningfully "last" in the dramatic
-sense. Not tracked for Sardines or Hot Potato (different semantics).
+key is the last entry in `foundOrder`, AND all hiders were found at reveal (no survivors). If
+there are survivors, the last found is not meaningfully "last" in the dramatic sense. Not tracked
+for Sardines or Hot Potato (different `foundOrder` semantics).
 
 ---
 
@@ -289,29 +306,28 @@ which is correct.
 ## 8. Time Tracking
 
 ### What counts
-- **"Search phase time"** is the only time that counts toward per-role time stats (search phase
-  only, not the hiding-countdown phase). This was an explicit decision.
-- **"Session time"** = full wall-clock duration of the session (from session start to Game Over
-  or session end), used for `totalSessionSeconds`.
+- **`secondsSearching` / `secondsHiding`**: search phase only, not the hiding-countdown phase. Tracks the player's **actual role at each moment** — for modes where roles change mid-round (Conquer, Hot Potato) the time is split across roles on every role-change event.
+- **`secondsFindingSpot`**: hiding phase only, hiders only. Timer ends on "I'm Hidden!" press or SEARCHING start, whichever comes first.
+- **`totalSessionSeconds`**: full wall-clock duration (session start → Game Over or session end).
 
-### Implementation
+### Per-round state variables
+| Variable | Purpose |
+|---|---|
+| `State.hidingSpotStartTime` | `GetTime()` when hider entered HIDING phase; nil after flush |
+| `State.hidingSpotTrackedForRound` | True once HIDING has been processed for this round; prevents re-sync from restarting the timer |
+| `State.searchRoleStartTime` | `GetTime()` when current search-phase role segment began |
+| `State.searchRoleIsSeeker` | Whether the active segment is as a seeker |
+| `State.roundSearchingSeconds` | Accumulated seeking seconds for the current round |
+| `State.roundHidingSeconds` | Accumulated hiding seconds for the current round |
+| `State.roundFindingSpotSeconds` | Accumulated finding-spot seconds for the current round |
 
-```lua
--- Session timing: use time() (Unix timestamp) so it survives logout
-State.statsSessionStartTime = time()   -- set in nhsLeaderStartSession / SESSION_START handler
--- At session end: elapsed = time() - State.statsSessionStartTime
+### Flush points
+- **`nhsFlushHidingSpotClock()`**: called on "I'm Hidden!" press, SEARCHING start, REVEALING start, and at the top of `nhsAccumulateRoundStats`. Adds elapsed to `roundFindingSpotSeconds`.
+- **`nhsFlushSearchRoleClock()`**: called on role-change events (HP swap, Conquer found) and at the top of `nhsAccumulateRoundStats`. Adds elapsed to `roundSearchingSeconds` or `roundHidingSeconds`.
+- **`nhsAccumulateRoundStats()`**: flushes both clocks, then writes round buckets to `charStats` and resets buckets to 0.
 
--- Search phase timing (leader)
-State.searchPhaseStartTime = GetTime()  -- already exists; set in nhsLeaderStartPhaseCountdown
-State.searchPhaseDuration = sec         -- already exists
-
--- Search phase timing (follower)
--- Set on receipt of [NHS] The Seeking Begins! if phase ~= SEARCHING
-State.followerSearchPhaseStartTime = GetTime()
-```
-
-At ROUND_OVER, compute actual search seconds from start time, capped to the round duration.
-If the timer was reset (re-sync guard worked), this may be slightly short — acceptable.
+### Re-sync safety
+Re-broadcasts of HIDING (leader `/reload` mid-round) are no-ops due to `hidingSpotTrackedForRound`. Re-broadcasts of SEARCHING are no-ops due to the existing `followerSearchPhaseStartTime` guard (search role clock is inside the same guard block).
 
 ---
 
@@ -319,8 +335,8 @@ If the timer was reset (re-sync guard worked), this may be slightly short — ac
 
 - **`statsVersion` migration**: When new stat fields are added, `nhsEnsureCharStats()` adds them with
   zero defaults. No destructive migration needed for additive counters.
-- **Hot Potato initial role**: The initial "seeker" in Hot Potato starts the round as seeker — they should be counted as a seeker round. But the outcome stat is `hotPotatoLoss` (bad) vs. successfully passing the potato (good). Normal `seekerWins` / `hiderSurvivals` do not apply to Hot Potato rounds. `hotPotatoWins` also feeds `modeSeekerWins["hot_potato"]` for per-mode display.
-- **Sardines "winner"** (resolved): Sardine wins = time ran out before all seekers joined (`not allSeekersJoined`). This maps to `hiderSurvivals` (consistent with hider role across all modes). Seekers win if they found and joined the sardine (key is in `foundOrder`), incrementing `seekerWins` and `modeSeekerWins["sardines"]`. Seekers who never found the sardine get no win credit. Both counters feed into the generic `seekerWins` / `hiderSurvivals` totals.
+- **Hot Potato win tracking** (resolved): No separate `hotPotatoWins` / `hotPotatoLosses` counters. Initial role is captured normally. Win condition: you are not the final seeker at reveal. Win credit goes to `seekerWins` + `modeSeekerWins` (if initial seeker) or `hiderSurvivals` + `modeHiderSurvivals` (if initial hider). See Section 5 mode table for full detail.
+- **Sardines win tracking** (resolved): Seeker win is individual — your key must be in `foundOrder` (you joined the pile). Sardine (hider) win = at least one seeker is still searching at round end. Both feed into the standard `seekerWins` / `hiderSurvivals` totals. See Section 5 mode table for full detail.
 - **Unimplemented social stats**: `playerFoundByMe`, `playerFoundMe`, `uniquePlayersCount`, `uniqueHousesCount` were considered during design but not implemented in v1. If added later, `nhsEnsureCharStats()` can initialize them with zero defaults and the accumulator extended.
 
 ---
@@ -342,11 +358,11 @@ If the timer was reset (re-sync guard worked), this may be slightly short — ac
 | Section | Source fields |
 |---|---|
 | Character name (header) | `NHS.LocalCharacterKey` via `Ambiguate` |
+| SESSIONS | `sessionsPlayed` |
 | ROUNDS | `roundsPlayed`, `roundsAsSeeker`, `roundsAsHider` |
-| WINS & SURVIVALS | `seekerWins`, `hiderSurvivals`, `timesFirstFound`, `timesLastFound`, `hotPotatoWins`, `hotPotatoLosses` |
 | TIME | `secondsSearching`, `secondsHiding`, `totalSessionSeconds` |
-| SESSIONS | `sessionsStarted`, `sessionsCompleted` |
-| BY GAME MODE | `modeCounts` top 8, sorted by count |
+| WINS & SURVIVALS | `seekerWins`, `hiderSurvivals`, `timesFirstFound`, `timesLastFound` |
+| BY GAME MODE | Per mode in `NHS.GAME_MODE_IDS` order (only modes with `modeCounts > 0`). Header shows mode label + total rounds. Body shows `Seeking: W / R (%)` from `modeSeekerWins` / `modeSeekerRounds` and `Hiding: W / R (%)` from `modeHiderSurvivals` / `modeHiderRounds`, each row only shown if that role has rounds. |
 | BY NEIGHBORHOOD | `neighborhoodCounts` top 5, sorted by count |
 | BY HOUSE | `houseCounts` top 5; display via `NHSV.houseLabels[key]` with fallback to parsing the `\3`-delimited persistence key |
 | PLAYED WITH | `playerEncounters` top 8, sorted by count |
