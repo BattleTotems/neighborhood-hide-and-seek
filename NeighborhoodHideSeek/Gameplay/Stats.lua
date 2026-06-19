@@ -26,8 +26,6 @@ local function nhsEnsureCharStats(charKey)
   s.hiderSurvivals      = s.hiderSurvivals      or 0
   s.timesFirstFound     = s.timesFirstFound     or 0
   s.timesLastFound      = s.timesLastFound      or 0
-  s.hotPotatoLosses     = s.hotPotatoLosses     or 0
-  s.hotPotatoWins       = s.hotPotatoWins       or 0
   s.secondsSearching    = s.secondsSearching    or 0
   s.secondsHiding       = s.secondsHiding       or 0
   s.totalSessionSeconds = s.totalSessionSeconds or 0
@@ -182,20 +180,21 @@ local function nhsAccumulateRoundStats()
 
   -- Performance stats (win conditions per game mode)
   if isHotPotato then
-    -- Hot Potato: final seeker at reveal = loss; everyone else = win.
-    -- Does not contribute to generic seekerWins/hiderSurvivals.
+    -- Hot Potato: win = you are not the final seeker at reveal, regardless of initial role.
     local currentSeekers = State.gameSessionActive and State.gameLockedSeekerKeys or State.remoteSeekerKeys
     local finalSeeker = currentSeekers and currentSeekers[1]
-    if finalSeeker then
-      if NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(myKey, finalSeeker) then
-        s.hotPotatoLosses = s.hotPotatoLosses + 1
+    if finalSeeker and not (NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(myKey, finalSeeker)) then
+      if iWasSeeker then
+        s.seekerWins = s.seekerWins + 1
+        if modeId then s.modeSeekerWins[modeId] = (s.modeSeekerWins[modeId] or 0) + 1 end
       else
-        s.hotPotatoWins = s.hotPotatoWins + 1
+        s.hiderSurvivals = s.hiderSurvivals + 1
+        if modeId then s.modeHiderSurvivals[modeId] = (s.modeHiderSurvivals[modeId] or 0) + 1 end
       end
     end
   elseif isSardines then
-    -- Sardines: seekers win as a team when all seekers have joined the sardine pile.
-    -- Sardine (hider) wins = time ran out before all seekers joined.
+    -- Sardines: seeker wins individually by finding and joining the sardine (key in foundOrder).
+    -- Sardine (hider) wins if any seekers are still searching at round end (not all joined).
     local allSeekersJoined = #initSeekers > 0
     if allSeekersJoined then
       for _, k in ipairs(initSeekers) do
@@ -208,9 +207,12 @@ local function nhsAccumulateRoundStats()
         if modeId then s.modeHiderSurvivals[modeId] = (s.modeHiderSurvivals[modeId] or 0) + 1 end
       end
     else
-      if allSeekersJoined then
-        s.seekerWins = s.seekerWins + 1
-        if modeId then s.modeSeekerWins[modeId] = (s.modeSeekerWins[modeId] or 0) + 1 end
+      for _, k in ipairs(State.foundOrder) do
+        if NHS.RosterIdentityEqual and NHS.RosterIdentityEqual(myKey, k) then
+          s.seekerWins = s.seekerWins + 1
+          if modeId then s.modeSeekerWins[modeId] = (s.modeSeekerWins[modeId] or 0) + 1 end
+          break
+        end
       end
     end
   else

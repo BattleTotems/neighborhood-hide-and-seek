@@ -181,10 +181,6 @@ function NHS.CreateStatsFrame()
       add(("  First found: %s  |  Last found: %s"):format(
         v(s.timesFirstFound or 0), v(s.timesLastFound or 0)))
     end
-    if (s.hotPotatoWins or 0) > 0 or (s.hotPotatoLosses or 0) > 0 then
-      add(("  Hot Potato  wins: %s  |  losses: %s"):format(
-        v(s.hotPotatoWins or 0), v(s.hotPotatoLosses or 0)))
-    end
 
     if type(s.modeCounts) == "table" and next(s.modeCounts) then
       local modeList = {}
@@ -202,23 +198,15 @@ function NHS.CreateStatsFrame()
           local modeId = entry.id
           local label = (NHS.GameModeHudLabel and NHS.GameModeHudLabel(modeId)) or modeId
           add(("  %s (%s)"):format(label, v(entry.count)))
-          if modeId == "hot_potato" then
-            local wins   = s.hotPotatoWins   or 0
-            local losses = s.hotPotatoLosses or 0
-            local total  = entry.count
-            add(("    Won:  %s / %s  (%s)"):format(v(wins),   v(total), v(pct(wins,   total))))
-            add(("    Lost: %s / %s  (%s)"):format(v(losses), v(total), v(pct(losses, total))))
-          else
-            local seekRounds = (type(s.modeSeekerRounds)   == "table" and s.modeSeekerRounds[modeId])   or 0
-            local hideRounds = (type(s.modeHiderRounds)    == "table" and s.modeHiderRounds[modeId])    or 0
-            local seekWins   = (type(s.modeSeekerWins)     == "table" and s.modeSeekerWins[modeId])     or 0
-            local hideWins   = (type(s.modeHiderSurvivals) == "table" and s.modeHiderSurvivals[modeId]) or 0
-            if seekRounds > 0 then
-              add(("    Seeking: %s / %s  (%s)"):format(v(seekWins), v(seekRounds), v(pct(seekWins, seekRounds))))
-            end
-            if hideRounds > 0 then
-              add(("    Hiding:  %s / %s  (%s)"):format(v(hideWins), v(hideRounds), v(pct(hideWins, hideRounds))))
-            end
+          local seekRounds = (type(s.modeSeekerRounds)   == "table" and s.modeSeekerRounds[modeId])   or 0
+          local hideRounds = (type(s.modeHiderRounds)    == "table" and s.modeHiderRounds[modeId])    or 0
+          local seekWins   = (type(s.modeSeekerWins)     == "table" and s.modeSeekerWins[modeId])     or 0
+          local hideWins   = (type(s.modeHiderSurvivals) == "table" and s.modeHiderSurvivals[modeId]) or 0
+          if seekRounds > 0 then
+            add(("    Seeking: %s / %s  (%s)"):format(v(seekWins), v(seekRounds), v(pct(seekWins, seekRounds))))
+          end
+          if hideRounds > 0 then
+            add(("    Hiding:  %s / %s  (%s)"):format(v(hideWins), v(hideRounds), v(pct(hideWins, hideRounds))))
           end
         end
       end
