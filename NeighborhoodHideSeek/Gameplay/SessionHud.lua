@@ -383,7 +383,7 @@ local function nhsInitSessionHud()
   end
   local openBtn = CreateFrame("Button", nil, hud)
   openBtn:SetSize(20, 20)
-  openBtn:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -10, -10)
+  openBtn:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -34, -10)
   openBtn:SetNormalTexture("Interface\\Common\\help-i")
   openBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
   openBtn:SetScript("OnClick", function()
@@ -398,6 +398,34 @@ local function nhsInitSessionHud()
     GameTooltip:Show()
   end)
   openBtn:SetScript("OnLeave", function()
+    GameTooltip:Hide()
+  end)
+  local statsBtn = CreateFrame("Button", nil, hud)
+  statsBtn:SetSize(20, 20)
+  statsBtn:SetPoint("TOPRIGHT", hud, "TOPRIGHT", -10, -10)
+  statsBtn:SetNormalTexture("Interface\\Icons\\INV_Misc_Book_09")
+  statsBtn:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+  statsBtn:SetScript("OnClick", function()
+    NHS.EnsureMainFrameCreated()
+    local UI = getUI()
+    if UI and UI.statsFrame then
+      if UI.statsFrame:IsShown() then
+        UI.statsFrame:Hide()
+      else
+        if UI.refreshStatsPanel then
+          UI.refreshStatsPanel()
+        end
+        UI.statsFrame:Show()
+      end
+    end
+  end)
+  statsBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:SetText("Game Stats", 1, 1, 1)
+    GameTooltip:AddLine("Click to view game statistics.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  statsBtn:SetScript("OnLeave", function()
     GameTooltip:Hide()
   end)
   local title = hud:CreateFontString(nil, "OVERLAY", "GameFontNormal")

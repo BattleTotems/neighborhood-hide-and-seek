@@ -1329,8 +1329,13 @@ local function nhsTryLeaderAutoReveal()
     end
     return
   end
+  -- Conquer mode conscripts found hiders into gameLockedSeekerKeys, so use the initial seeker
+  -- set (captured at SEARCHING phase start) to correctly identify who started as hiders.
   local seekerSet = {}
-  for _, k in ipairs(State.gameLockedSeekerKeys) do seekerSet[k] = true end
+  local seekerKeySource = (NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId() == "conquer")
+    and State.gameRoundInitialSeekerKeys
+    or State.gameLockedSeekerKeys
+  for _, k in ipairs(seekerKeySource) do seekerSet[k] = true end
   local hiderCount, unfoundCount = 0, 0
   for _, m in ipairs(nhsGetGroupRoster()) do
     if not seekerSet[m.key] then

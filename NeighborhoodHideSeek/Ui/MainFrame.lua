@@ -2149,6 +2149,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   UI.gameplayPastHousesFrame = ghpf
   UI.gameplayPastRoundsFrame = pastRoundsFrame
   UI.statsFrame = statsFrame
+  UI.refreshStatsPanel = refreshStatsPanel
   UI.gameplaySeekerPickFrame = gsfp
   UI.gameplayRandomPickFrame = randomPickFrame
   UI.howToPlayFrame = htpf
