@@ -94,6 +94,29 @@ local function persistenceTailWithoutPlayer(tail)
   return pos and tail:sub(1, pos - 1) or tail
 end
 
+-- Extracts the player name from a house display string.
+-- Handles three formats:
+--   "PlayerName"                    (group legacy / group display)
+--   "Plot - PlayerName"             (neighborhood mode)
+--   "Plot - PlayerName — ..."       (saved-list display with neighborhood info)
+local function playerFromDisplay(display)
+  if type(display) ~= "string" or display == "" then return nil end
+  local remainder
+  local dashPos = display:find(" - ", 1, true)
+  if dashPos then
+    remainder = display:sub(dashPos + 3)
+  else
+    remainder = display
+  end
+  -- Strip " — ..." suffix (em dash U+2014, UTF-8: \xE2\x80\x94)
+  local emdashPos = remainder:find(" \226\128\148 ", 1, true)
+  if emdashPos then
+    remainder = remainder:sub(1, emdashPos - 1)
+  end
+  remainder = remainder:match("^%s*(.-)%s*$") or ""
+  return remainder ~= "" and remainder or nil
+end
+
 -- Returns the trimmed player name from a live entry, or nil if unavailable/fallback.
 local function trimmedPlayerNameFromEntry(entry, fallbackIndex)
   if not (NHS.EntryHasOwnerDisplay and NHS.EntryHasOwnerDisplay(entry)) then
@@ -791,4 +814,102 @@ function S.PickRandomGameplayHouse(housesCache, listSource)
     return nil, err
   end
   return elig[math.random(1, #elig)]
+end
+
+-- ---------------------------------------------------------------------------
+-- Canonical house stat keys  (player-centric; survives plot / neighborhood changes)
+-- ---------------------------------------------------------------------------
+
+-- Extracts the player name encoded after \3 in a persistence key's tail.
+-- Returns nil if no player component is present.
+function S.PlayerFromPersistenceKey(key)
+  if type(key) ~= "string" then return nil end
+  local pos = key:find(NHS_TAIL_PLAYER_SEP, 1, true)
+  if not pos or pos >= #key then return nil end
+  local p = key:sub(pos + 1):match("^%s*(.-)%s*$") or ""
+  return p ~= "" and p or nil
+end
+
+-- Normalizes a player name to a fully-qualified "Name-Realm" key.
+-- If the name has no "-Realm" suffix, the current realm is appended via GetRealmName().
+-- Returns the name unchanged (without realm) if GetRealmName() is unavailable.
+function S.NormalizePlayerKey(name)
+  if type(name) ~= "string" then return nil end
+  name = name:match("^%s*(.-)%s*$") or ""
+  if name == "" then return nil end
+  if name:find("-", 1, true) then
+    return name  -- realm suffix already present
+  end
+  local realm = GetRealmName and GetRealmName()
+  if type(realm) == "string" then
+    realm = realm:match("^%s*(.-)%s*$") or ""
+  end
+  if realm and realm ~= "" then
+    return name .. "-" .. realm
+  end
+  return name
+end
+
+-- Returns a canonical stat key of the form "player:Name-Realm" for a gameplay
+-- session's house.  Returns nil if no player name can be determined.
+-- Sources tried in order:
+--   1. "group:<key>" prefix on houseKey  (group-mode roster key)
+--   2. \3 player component in a full persistence key  (saved-list / any key with player tail)
+--   3. Player name parsed from houseDisplay  (neighborhood bare stable key, or legacy group)
+function S.CanonicalHouseStatKey(houseKey, houseDisplay)
+  local playerName
+  if type(houseKey) == "string" and houseKey ~= "" then
+    local groupPart = houseKey:match("^group:(.+)$")
+    if groupPart then
+      playerName = groupPart
+    else
+      playerName = S.PlayerFromPersistenceKey(houseKey)
+    end
+  end
+  if not playerName then
+    playerName = playerFromDisplay(houseDisplay)
+  end
+  local normalized = playerName and S.NormalizePlayerKey(playerName)
+  if not normalized then return nil end
+  return "player:" .. normalized
+end
+
+-- Migrates all houseCounts entries from legacy key formats (persistence keys, bare stable
+-- keys, "group:" keys, plain display names) to the canonical "player:Name-Realm" format.
+-- Merges duplicates, keeping the richest (longest) display label.  Safe to call multiple times.
+-- Only migrates when GetRealmName() is populated; returns false otherwise so the caller
+-- can retry later.
+function S.MigrateHouseCountsToPlayerKeys(houseCounts)
+  if type(houseCounts) ~= "table" then return false end
+  local realm = GetRealmName and GetRealmName()
+  if type(realm) ~= "string" or realm:match("^%s*$") then return false end
+  local migrations = {}
+  for oldKey, hc in pairs(houseCounts) do
+    if type(oldKey) == "string" then
+      -- Skip correctly-formed canonical keys ("player:Name-Realm" with no spaces after the prefix).
+      -- Process everything else: legacy keys AND bugged "player:Plot - Name" keys from a prior run.
+      local isClean = oldKey:match("^player:") and not oldKey:find(" ", 8, true)
+      if not isClean then
+        local disp = type(hc) == "table" and hc.display or nil
+        local canonical = S.CanonicalHouseStatKey(oldKey, disp or oldKey)
+        if canonical and canonical ~= oldKey then
+          local count = type(hc) == "table" and (hc.count or 0) or (tonumber(hc) or 0)
+          migrations[#migrations + 1] = { old = oldKey, new = canonical, count = count, display = disp }
+        end
+      end
+    end
+  end
+  for _, m in ipairs(migrations) do
+    local existing = houseCounts[m.new]
+    if existing then
+      existing.count = (existing.count or 0) + m.count
+      if type(m.display) == "string" and #m.display > #(existing.display or "") then
+        existing.display = m.display
+      end
+    else
+      houseCounts[m.new] = { display = m.display or m.new, count = m.count }
+    end
+    houseCounts[m.old] = nil
+  end
+  return true
 end

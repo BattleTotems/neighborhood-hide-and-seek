@@ -38,7 +38,15 @@ local function nhsEnsureCharStats(charKey)
   s.sessionsPlayed     = s.sessionsPlayed     or 0
   s.totalRoundCount    = s.totalRoundCount    or 0
   s.houseCounts        = type(s.houseCounts)        == "table" and s.houseCounts        or {}
-  s.neighborhoodCounts = type(s.neighborhoodCounts) == "table" and s.neighborhoodCounts or {}
+  -- Migrate legacy house stat keys to canonical "player:Name-Realm" format (statsVersion → 3).
+  -- v1→3: first-time migration of persistence keys, bare stable keys, group: keys, display names.
+  -- v2→3: fixes bugged "player:Plot - Name" keys produced by an earlier run with a search bug.
+  if (s.statsVersion or 1) < 3 then
+    local S = NHS.SavedHouses
+    if S and S.MigrateHouseCountsToPlayerKeys and S.MigrateHouseCountsToPlayerKeys(s.houseCounts) then
+      s.statsVersion = 3
+    end
+  end
   s.modeCounts         = type(s.modeCounts)         == "table" and s.modeCounts         or {}
   s.modeSeekerWins     = type(s.modeSeekerWins)     == "table" and s.modeSeekerWins     or {}
   s.modeHiderSurvivals = type(s.modeHiderSurvivals) == "table" and s.modeHiderSurvivals or {}
@@ -255,20 +263,21 @@ local function nhsAccumulateRoundStats()
     houseKey     = State.remoteHouseKey
     houseDisplay = State.remoteHouseDisplay
   end
-  local houseStatKey = (houseKey and houseKey ~= "") and houseKey or houseDisplay
+  local houseStatKey
+  local SH = NHS.SavedHouses
+  if SH and SH.CanonicalHouseStatKey then
+    houseStatKey = SH.CanonicalHouseStatKey(houseKey, houseDisplay)
+  end
+  houseStatKey = houseStatKey or (houseKey ~= "" and houseKey) or houseDisplay
   if houseStatKey and houseStatKey ~= "" then
     local hc = s.houseCounts[houseStatKey] or { display = houseDisplay or houseStatKey, count = 0 }
     hc.count = hc.count + 1
-    if houseDisplay and houseDisplay ~= "" then hc.display = houseDisplay end
+    -- Keep the richest display seen so far rather than always overwriting.
+    if houseDisplay and houseDisplay ~= "" and #houseDisplay > #(hc.display or "") then
+      hc.display = houseDisplay
+    end
     s.houseCounts[houseStatKey] = hc
   end
-  if houseKey and houseKey ~= "" and NHS.SavedHouses and NHS.SavedHouses.NeighborhoodAndSubFromKey then
-    local nbhd = NHS.SavedHouses.NeighborhoodAndSubFromKey(houseKey)
-    if nbhd and nbhd ~= "" then
-      s.neighborhoodCounts[nbhd] = (s.neighborhoodCounts[nbhd] or 0) + 1
-    end
-  end
-
   -- Player encounters
   for _, m in ipairs(roster) do
     if NHS.RosterIdentityEqual and not NHS.RosterIdentityEqual(myKey, m.key) then

@@ -14,6 +14,9 @@ StaticPopupDialogs["NHS_CONFIRM_RESET_STATS"] = {
       NHSV.charStats[charKey] = nil
     end
     print("|cff88ff88[NHS]|r Character stats have been reset.")
+    if NeighborhoodHideSeek.LiveRefreshIfOpen then
+      NeighborhoodHideSeek.LiveRefreshIfOpen("stats")
+    end
   end,
   timeout = 0,
   whileDead = true,
@@ -41,20 +44,6 @@ local function pct(num, den)
   return ("%.0f%%"):format(100 * num / den)
 end
 
-local function topNIntTable(t, n)
-  if type(t) ~= "table" then return {} end
-  local items = {}
-  for k, v in pairs(t) do
-    items[#items + 1] = { key = k, count = tonumber(v) or 0 }
-  end
-  table.sort(items, function(a, b) return a.count > b.count end)
-  local result = {}
-  for i = 1, math.min(n, #items) do
-    result[#result + 1] = items[i]
-  end
-  return result
-end
-
 local function topNEncounterTable(t, n)
   if type(t) ~= "table" then return {} end
   local items = {}
@@ -71,18 +60,6 @@ local function topNEncounterTable(t, n)
   return result
 end
 
-local function houseDisplay(key)
-  local labels = NHSV and NHSV.houseLabels
-  if type(labels) == "table" and type(labels[key]) == "string" then
-    return labels[key]
-  end
-  -- Persistence key format: stableKey + \1 + neighborhood + \2 + subdivision + \3 + playerName
-  local after = key:match("\3(.+)$")
-  if after and #after > 0 then
-    return after
-  end
-  return key:sub(1, 30)
-end
 
 function NHS.CreateStatsFrame()
   local statsFrame = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
@@ -153,6 +130,14 @@ function NHS.CreateStatsFrame()
     scroll:SetVerticalScroll(0)
     local charKey = NHS.LocalCharacterKey
     local s = charKey and NHSV and type(NHSV.charStats) == "table" and NHSV.charStats[charKey]
+    -- Migrate legacy house stat keys to canonical player keys if not yet done.
+    -- Runs here so the user sees merged data immediately without needing a session first.
+    if s and (s.statsVersion or 1) < 3 then
+      local SH = NHS.SavedHouses
+      if SH and SH.MigrateHouseCountsToPlayerKeys and SH.MigrateHouseCountsToPlayerKeys(s.houseCounts) then
+        s.statsVersion = 3
+      end
+    end
     if not s then
       bodyText:SetText("No stats recorded yet.\n\nPlay some rounds to start tracking!")
       scrollChild:SetHeight(math.max(bodyText:GetStringHeight() + 8, 1))
@@ -243,15 +228,7 @@ function NHS.CreateStatsFrame()
       gap()
       hdr("PLAYED WITH")
       for _, e in ipairs(topNEncounterTable(s.playerEncounters, 8)) do
-        add(("  %s: %s"):format(tostring(e.disp), v(e.count)))
-      end
-    end
-
-    if type(s.neighborhoodCounts) == "table" and next(s.neighborhoodCounts) then
-      gap()
-      hdr("BY NEIGHBORHOOD")
-      for _, e in ipairs(topNIntTable(s.neighborhoodCounts, 5)) do
-        add(("  %s: %s"):format(tostring(e.key), v(e.count)))
+        add(("  %s  " .. D .. "||" .. R .. "  %s"):format(v(e.count), tostring(e.disp)))
       end
     end
 
@@ -259,7 +236,7 @@ function NHS.CreateStatsFrame()
       gap()
       hdr("BY HOUSE")
       for _, e in ipairs(topNEncounterTable(s.houseCounts, 5)) do
-        add(("  %s:  %s"):format(v(e.count), tostring(e.disp)))
+        add(("  %s  " .. D .. "||" .. R .. "  %s"):format(v(e.count), tostring(e.disp)))
       end
     end
 
