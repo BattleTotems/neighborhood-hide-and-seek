@@ -967,6 +967,7 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     randomPickAnim.syncPhase(
       sess,
       pickHouse and State.gameSessionHouseListSource ~= nil,
+      pickGameMode,
       pickSeeker,
       useLeaderUi
     )
@@ -1609,14 +1610,29 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
   end
 
   gameModeRandomBtn:SetScript("OnClick", function()
-    local eligible = {}
+    local elig = {}
     for _, chk in ipairs(gameModeCheckboxes) do
       if chk:GetChecked() then
-        eligible[#eligible + 1] = chk._gameModeId
+        local id = chk._gameModeId
+        local def = NHS.GameModeDefinition(id)
+        elig[#elig + 1] = { id = id, display = def and def.label or id }
       end
     end
-    if #eligible == 0 then return end
-    nhsLeaderSelectGameMode(eligible[math.random(#eligible)])
+    if #elig == 0 then return end
+    randomPickAnim.openAnimated("game_mode", "Random game mode", elig, function(winIdx)
+      local pick = elig[winIdx]
+      if not pick then return end
+      if NHSV.useRandomPickAnimation == false then
+        if not State.gameSessionActive or State.phase ~= Phase.PICK_GAME_MODE then return end
+        nhsLeaderSelectGameMode(pick.id)
+      else
+        -- Delay committing so the settled animation state is visible before the frame closes.
+        C_Timer.After(1.0, function()
+          if not State.gameSessionActive or State.phase ~= Phase.PICK_GAME_MODE then return end
+          nhsLeaderSelectGameMode(pick.id)
+        end)
+      end
+    end)
   end)
 
   gameplayGroupCatchUpBtn:SetScript("OnClick", function()
@@ -2152,6 +2168,9 @@ function NeighborhoodHideSeek.BuildMainFrame(UI)
     end
     if (not which or which == "seekers") and psf:IsShown() then
       refreshPastSeekersPanel()
+    end
+    if (not which or which == "stats") and statsFrame:IsShown() then
+      refreshStatsPanel()
     end
   end
   syncHouseSizePickerEnabled()

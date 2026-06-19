@@ -20,12 +20,14 @@ All notable changes to Neighborhood Hide and Seek are documented in this file.
 - Chosen One game mode now reduces the search time by 15 seconds per seeker
 - Overtime game mode search time values adjusted
 - Bloodhound targeting logic has been changed and updates more frequently
+- Selecting a random game mode will now use the random animation picker (unless disabled)
 
 ### Fixed
 - Previous rounds now saves correctly even before the main view is opened
 - Fixed issue with some gameplay logic being tied to the game control view
 - Late player added during Chosen One are added to seekers
 - Fixed a desync issue with players enter/leaving houses during certain game phases
+- Applying a random seed on addon launch for better random values in the sessions
 
 
 ## [1.2.5]

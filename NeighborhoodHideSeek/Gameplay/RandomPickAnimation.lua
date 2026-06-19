@@ -363,7 +363,7 @@ function NHS.CreateRandomPickAnimationFrame()
     end)
   end
 
-  local function syncPhase(sess, pickHouse, pickSeeker, useLeaderUi)
+  local function syncPhase(sess, pickHouse, pickGameMode, pickSeeker, useLeaderUi)
     if not randomPickFrame:IsShown() then
       return
     end
@@ -373,6 +373,8 @@ function NHS.CreateRandomPickAnimationFrame()
     end
     local ctx = randomPickFrame.nhsPickAnimContext
     if ctx == "house" and not pickHouse then
+      randomPickFrame:Hide()
+    elseif ctx == "game_mode" and not pickGameMode then
       randomPickFrame:Hide()
     elseif ctx == "seeker" and not pickSeeker then
       randomPickFrame:Hide()

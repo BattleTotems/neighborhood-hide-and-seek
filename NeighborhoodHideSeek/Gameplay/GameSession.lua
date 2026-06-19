@@ -909,7 +909,10 @@ local function nhsAppendPastRoundSnapshotIfActiveRound()
     hidden = nhsPastRoundHiddenSnapshotString(seekerKeys),
     found = nhsPastRoundFoundSnapshotString(),
   }
-  if NHS.LiveRefreshIfOpen then NHS.LiveRefreshIfOpen("rounds") end
+  if NHS.LiveRefreshIfOpen then
+    NHS.LiveRefreshIfOpen("rounds")
+    NHS.LiveRefreshIfOpen("stats")
+  end
 end
 
 -- Toggle with /nhs debugfound or /run NeighborhoodHideSeek.debugFoundSync=true
