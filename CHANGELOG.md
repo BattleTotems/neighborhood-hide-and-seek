@@ -2,6 +2,15 @@
 
 All notable changes to Neighborhood Hide and Seek are documented in this file.
 
+## [1.3.1]
+
+### Changed
+- Game stats by house and played with now show top 12 (previous was 8 and 5)
+
+### Fixed
+- Fixed an issue with session game stat being doubled up on sync notifications (manual or new player joining)
+
+
 ## [1.3.0]
 
 ### Added

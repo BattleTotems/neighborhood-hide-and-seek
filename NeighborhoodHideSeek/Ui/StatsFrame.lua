@@ -215,16 +215,16 @@ function NHS.CreateStatsFrame()
 
     if type(s.playerEncounters) == "table" and next(s.playerEncounters) then
       gap()
-      hdr("PLAYED WITH")
-      for _, e in ipairs(topNEncounterTable(s.playerEncounters, 8)) do
+      hdr("PLAYED WITH (TOP 12)")
+      for _, e in ipairs(topNEncounterTable(s.playerEncounters, 12)) do
         add(("  %s  " .. D .. "||" .. R .. "  %s"):format(v(e.count), tostring(e.disp)))
       end
     end
 
     if type(s.houseCounts) == "table" and next(s.houseCounts) then
       gap()
-      hdr("BY HOUSE")
-      for _, e in ipairs(topNEncounterTable(s.houseCounts, 5)) do
+      hdr("BY HOUSE (TOP 12)")
+      for _, e in ipairs(topNEncounterTable(s.houseCounts, 12)) do
         add(("  %s  " .. D .. "||" .. R .. "  %s"):format(v(e.count), tostring(e.disp)))
       end
     end

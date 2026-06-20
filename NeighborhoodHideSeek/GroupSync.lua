@@ -675,18 +675,22 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
       end
     end
   elseif text:match("^%[NHS%]%s*Game session started%s*$") then
-    C.State.remoteSessionActive = true
-    C.State.phase = Phase.PICK_HOUSE
-    C.State.remoteGameMode = nil
-    wipe(C.State.gameSeekerHistory)
-    wipe(C.State.gameHouseHistory)
-    wipe(C.State.pastRounds)
-    if NHS.ClearCompletedPastRoundsArchive then
-      NHS.ClearCompletedPastRoundsArchive()
+    if not C.State.remoteSessionActive then
+      C.State.remoteSessionActive = true
+      C.State.phase = Phase.PICK_HOUSE
+      C.State.remoteGameMode = nil
+      wipe(C.State.gameSeekerHistory)
+      wipe(C.State.gameHouseHistory)
+      wipe(C.State.pastRounds)
+      if NHS.ClearCompletedPastRoundsArchive then
+        NHS.ClearCompletedPastRoundsArchive()
+      end
+      C.State.remoteHouseDisplay = nil
+      C.State.remoteHouseKey = nil
+      if NHS.RecordSessionStart then NHS.RecordSessionStart() end
+    else
+      if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
     end
-    C.State.remoteHouseDisplay = nil
-    C.State.remoteHouseKey = nil
-    if NHS.RecordSessionStart then NHS.RecordSessionStart() end
   elseif text:match("^%[NHS%]%s*House:%s*.+") then
     local housePart = text:match("^%[NHS%]%s*House:%s*(.+)%s*$")
     if housePart then
