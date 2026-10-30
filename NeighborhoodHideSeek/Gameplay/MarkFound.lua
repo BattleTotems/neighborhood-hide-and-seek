@@ -59,7 +59,7 @@ local function markTargetFound(opts)
   end
   local key = NHS.UnitSortKey("target")
   if not key then
-    local name = UnitName("target")
+    local name = UnitNameUnmodified("target")
     if not name then
       return
     end
@@ -85,7 +85,7 @@ local function markTargetFound(opts)
     end
   end
   local modeId = NHS.GetEffectiveGameModeId and NHS.GetEffectiveGameModeId()
-  local disp = UnitName("target") or Ambiguate(key, "short")
+  local disp = UnitNameUnmodified("target") or Ambiguate(key, "short")
 
   -- Sardines mode: seeker joins the sardine rather than marking the hider found.
   -- The dskKeys loop above already blocks targeting current seekers. Any group member who

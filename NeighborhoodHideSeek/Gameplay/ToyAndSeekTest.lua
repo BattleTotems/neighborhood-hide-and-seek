@@ -5,7 +5,6 @@
 
   Access: /nhs testtas   (or the fallback: /run NHSTASTest())
 
-  Remove this file (and its .toc entry) before a production release if desired.
   All functions here go through NHS.ToyAndSeek.TEST, which is set in ToyAndSeekMode.lua.
 ]]
 
@@ -118,6 +117,14 @@ local function nhsTASTestBuildPanel()
   randomBtn:SetScript("OnClick", function() if T.FireRandom then T.FireRandom() end end)
   yOff = yOff + BTN_H + 4 + ROW_GAP
 
+  -- Runs the same cleanup as the end of the searching phase
+  local clearBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  clearBtn:SetSize(PANEL_W - PAD_X * 2, BTN_H + 4)
+  clearBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD_X, -yOff)
+  clearBtn:SetText("Clear All Hindrances")
+  clearBtn:SetScript("OnClick", function() if T.ClearAll then T.ClearAll() end end)
+  yOff = yOff + BTN_H + 4 + ROW_GAP
+
   -- ── Hindrances section ───────────────────────────────────────────────────
   yOff = nhsTASTestSectionLabel(panel, "Hindrances", yOff)
   yOff = nhsTASTestLayoutButtons(panel, {
@@ -132,6 +139,8 @@ local function nhsTASTestBuildPanel()
     { label = "Open Bags",       fn = T.OpenBags        },
     { label = "Toy Invite",      fn = T.ToyInvite       },
     { label = "Growing Btn",     fn = T.GrowingButton   },
+    { label = "Locked Close Cam",fn = T.LockedCloseCam  },
+    { label = "Locked Far Cam",  fn = T.LockedFarCam    },
   }, yOff)
 
   -- ── Art Popups section ───────────────────────────────────────────────────
@@ -179,6 +188,48 @@ local function nhsTASTestBuildPanel()
       end,
     },
   }, yOff)
+
+  -- ── Toy ID Tester ────────────────────────────────────────────────────────
+  -- Uses the same secure "/use item:" macro as the hider button, so any toy ID can be
+  -- checked before it goes in TOY_LIST.
+  yOff = nhsTASTestSectionLabel(panel, "Toy ID Tester", yOff)
+
+  local toyBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+  toyBox:SetSize(PANEL_W - PAD_X * 2 - 12, BTN_H)
+  toyBox:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD_X + 6, -yOff)
+  toyBox:SetAutoFocus(false)
+  toyBox:SetNumeric(true)
+  toyBox:Show()
+  yOff = yOff + BTN_H + ROW_GAP
+
+  local toyBtn = CreateFrame("Button", nil, panel,
+      "SecureActionButtonTemplate,UIPanelButtonTemplate")
+  toyBtn:SetSize(PANEL_W - PAD_X * 2, BTN_H)
+  toyBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", PAD_X, -yOff)
+  toyBtn:SetText("Use Toy")
+  toyBtn:SetAttribute("type", "macro")
+  toyBtn:SetAttribute("macrotext", "")
+  toyBtn:RegisterForClicks("AnyDown", "AnyUp")
+  yOff = yOff + BTN_H + ROW_GAP
+
+  toyBox:SetScript("OnTextChanged", function(self)
+    if InCombatLockdown() then return end
+    local id = tonumber(self:GetText())
+    -- /use item: does nothing for an item not yet cached, so load it before the click.
+    if id then C_Item.RequestLoadItemDataByID(id) end
+    toyBtn:SetAttribute("macrotext", id and ("/use item:" .. id) or "")
+  end)
+  toyBox:SetText("64646")
+
+  toyBtn:SetScript("PostClick", function(self, button, down)
+    if down then return end
+    local id = tonumber(toyBox:GetText())
+    if not id then return end
+    local name = C_Item.GetItemNameByID(id) or "unknown item"
+    local _, dur = C_Item.GetItemCooldown(id)
+    print(("[NHS TASTest] Toy %d (%s): owned=%s, cooldown=%ds"):format(
+        id, name, tostring(PlayerHasToy(id)), math.floor(dur or 0)))
+  end)
 
   -- ── Finalize height ──────────────────────────────────────────────────────
   panel:SetHeight(yOff + PAD_BOT)

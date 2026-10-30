@@ -17,7 +17,7 @@ local NHS = NeighborhoodHideSeek
 local State = NHS.State
 local Phase = NHS.Phase
 
--- ─── Toy list (56 items — all require player ownership) ──────────────────────
+-- ─── Toy list (64 items — all require player ownership) ──────────────────────
 -- Item IDs sourced from Wowhead; verify any marked "?" in-game.
 local TOY_LIST = {
   { id = 118937, name = "Gamon's Braid" },
@@ -25,20 +25,26 @@ local TOY_LIST = {
   { id = 191891, name = "Professor Chirpsnide's Im-PECK-able Harpy Disguise" },
   { id = 230924, name = "Spotlight Materializer 1000" },
   { id = 37254,  name = "Super Simian Sphere" },
+  { id = 279052, name = "Ancient Amani Mask" },
   { id = 129165, name = "Barnacle-Encrusted Gem" },
   { id = 205418, name = "Blazing Shadowflame Cinder" },
   { id = 113096, name = "Bloodmane Charm" },
-  { id = 64646,  name = "Bones of Transformation" },
+  { id = 64646,  name = "Bones of Transformation" },  -- ? changes UnitName; verify found marking keeps the real name
   { id = 170154, name = "Book of the Unshackled" },
   { id = 228698, name = "Candleflexer's Dumbbell" },
+  { id = 275988, name = "Corrosive Victory" },
   { id = 130171, name = "Cursed Orb" },
   { id = 166544, name = "Dark Ranger's Spare Cowl" },
   { id = 129149, name = "Death's Door Charm" },
   { id = 108743, name = "Deceptia's Smoldering Boots" },
   { id = 212523, name = "Delicate Jade Parasol" },
+  { id = 264413, name = "Dominating Victory" },
+  { id = 276189, name = "Effigy of Dundun" },
   { id = 164373, name = "Enchanted Soup Stone" },
   { id = 244470, name = "Etheric Victory" },
   { id = 129113, name = "Faintly Glowing Flagon of Mead" },
+  { id = 279021, name = "Forgotten Memento" },
+  { id = 119211, name = "Golden Hearthstone Card: Lord Jaraxxus" },  -- ? changes UnitName; verify found marking keeps the real name
   { id = 163742, name = "Heartsbane Grimoire" },
   { id = 184223, name = "Helm of the Dominated" },
   { id = 252265, name = "Hexed Potatoad Mucus" },
@@ -50,6 +56,7 @@ local TOY_LIST = {
   { id = 163750, name = "Kovork Kostume" },
   { id = 88566,  name = "Krastinov's Bag of Horrors" },
   { id = 228413, name = "Lampyridae Lure" },
+  { id = 280820, name = "Loa-Blessed Victory" },
   { id = 118938, name = "Manastorm's Duplicator" },
   { id = 119092, name = "Moroes' Famous Polish" },
   { id = 141862, name = "Mote of Light" },
@@ -57,11 +64,13 @@ local TOY_LIST = {
   { id = 35275,  name = "Orb of the Sin'dorei" },
   { id = 268717, name = "Pango Plating" },
   { id = 130158, name = "Path of Elothir" },
+  { id = 274921, name = "Pearl of Jubilation" },
   { id = 198409, name = "Personal Shell" },
   { id = 127864, name = "Personal Spotlight" },
   { id = 225910, name = "Pileus Delight" },
   { id = 108739, name = "Pretty Draenor Pearl" },
   { id = 119215, name = "Robo-Gnomebulator" },
+  { id = 268728, name = "Saptor Salve" },
   { id = 141649, name = "Set of Matches" },
   { id = 147843, name = "Sira's Extra Cloak" },
   { id = 163736, name = "Spectral Visage" },
@@ -87,6 +96,9 @@ local nhsTASHindranceQueue  = 0      -- pending seeker hindrances waiting to fir
 local nhsTASQueueDraining   = false  -- true while the drain timer chain is active
 local nhsTASHindranceHistory = {}  -- last 4 hindrance picks; avoids recent repeats
 local buffBarHidden  = false
+local nhsTASClearGen = 0             -- bumped on clear so pending hindrance timers no-op
+local nhsTASActiveRoots = {}         -- hindrance root frames to hide on clear
+local nhsTASWasSearching = false     -- detects the transition out of the searching phase
 
 -- ─── Role predicates ──────────────────────────────────────────────────────────
 local function nhsTASIsActive()
@@ -125,8 +137,12 @@ local function nhsTASPickToy()
     available[i], available[j] = available[j], available[i]
   end
   for _, toy in ipairs(available) do
-    local _, dur = GetItemCooldown(toy.id)
-    if not (dur and dur > 1.5) then return toy end
+    local _, dur = C_Item.GetItemCooldown(toy.id)
+    if not (dur and dur > 1.5) then
+      -- /use item: does nothing for an item not yet cached, so load it before the click.
+      C_Item.RequestLoadItemDataByID(toy.id)
+      return toy
+    end
   end
   return nil  -- every owned toy is on cooldown
 end
@@ -185,9 +201,65 @@ local function nhsTASHindranceColorTint()
   nhsTintFrame:SetAlpha(0)
   nhsTintFrame:Show()
   UIFrameFadeIn(nhsTintFrame, 2.0, 0, 1)
+  local gen = nhsTASClearGen
   C_Timer.After(6.0, function()
+    if gen ~= nhsTASClearGen then return end
     UIFrameFadeOut(nhsTintFrame, 2.0, 1, 0)
-    C_Timer.After(2.1, function() nhsTintFrame:Hide() end)
+    C_Timer.After(2.1, function()
+      if gen ~= nhsTASClearGen then return end
+      nhsTintFrame:Hide()
+    end)
+  end)
+end
+
+-- Confetti burst that rains down the whole screen, played with the achievement banner.
+local function nhsTASConfetti()
+  local PIECES   = 90
+  local DURATION = 5.0
+  local COLORS = {
+    {1, 0.2, 0.2}, {1, 0.8, 0.1}, {0.2, 0.9, 0.3}, {0.2, 0.6, 1}, {0.9, 0.3, 1},
+  }
+
+  local root = CreateFrame("Frame", nil, UIParent)
+  root:SetAllPoints(UIParent)
+  root:SetFrameStrata("FULLSCREEN_DIALOG")
+  root:SetFrameLevel(97)
+  root:Show()
+  nhsTASActiveRoots[#nhsTASActiveRoots + 1] = root
+
+  local sw = GetScreenWidth()
+  local sh = GetScreenHeight()
+
+  local pieces = {}
+  for i = 1, PIECES do
+    local c = COLORS[math.random(#COLORS)]
+    local tex = root:CreateTexture(nil, "ARTWORK")
+    tex:SetSize(math.random(8, 14), math.random(14, 22))
+    tex:SetColorTexture(c[1], c[2], c[3], 0.95)
+    pieces[i] = {
+      tex   = tex,
+      x     = math.random() * sw,
+      y     = sh * (1 + math.random() * 0.4),  -- staggered start above the screen
+      fall  = sh * (0.3 + math.random() * 0.2),
+      phase = math.random() * math.pi * 2,
+      spin  = (math.random() - 0.5) * 8,
+    }
+  end
+
+  local elapsed = 0
+  root:SetScript("OnUpdate", function(self, dt)
+    elapsed = elapsed + dt
+    if elapsed >= DURATION then
+      self:SetScript("OnUpdate", nil)
+      self:Hide()
+      return
+    end
+    for _, p in ipairs(pieces) do
+      p.tex:ClearAllPoints()
+      p.tex:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT",
+          p.x + math.sin(elapsed * 3 + p.phase) * 30, p.y - p.fall * elapsed)
+      p.tex:SetRotation(p.phase + p.spin * elapsed)
+    end
   end)
 end
 
@@ -208,31 +280,33 @@ local function nhsAchieveShowNext()
   local taunt = table.remove(nhsAchieveQueue, 1)
   if not nhsAchieveFrame then
     local f = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
-    f:SetSize(420, 80)
-    f:SetPoint("CENTER", UIParent, "CENTER", 0, 80)
+    f:SetSize(840, 160)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 160)
     f:SetFrameStrata("FULLSCREEN_DIALOG")
     f:SetFrameLevel(96)
     f:SetBackdrop({
       bgFile   = "Interface\\DialogFrame\\UI-DialogBox-Background",
       edgeFile = "Interface\\AchievementFrame\\UI-Achievement-Category-Border",
-      tile = true, tileSize = 32, edgeSize = 16,
-      insets = { left = 6, right = 6, top = 6, bottom = 6 },
+      tile = true, tileSize = 32, edgeSize = 32,
+      insets = { left = 12, right = 12, top = 12, bottom = 12 },
     })
     f:SetBackdropColor(0.07, 0.05, 0.01, 0.96)
     f:SetBackdropBorderColor(1, 0.82, 0, 1)
     local iconBorder = f:CreateTexture(nil, "BACKGROUND")
-    iconBorder:SetSize(60, 60)
-    iconBorder:SetPoint("LEFT", f, "LEFT", 8, 0)
+    iconBorder:SetSize(120, 120)
+    iconBorder:SetPoint("LEFT", f, "LEFT", 16, 0)
     iconBorder:SetTexture("Interface\\AchievementFrame\\UI-Achievement-IconFrame")
     local icon = f:CreateTexture(nil, "ARTWORK")
-    icon:SetSize(40, 40)
+    icon:SetSize(80, 80)
     icon:SetPoint("CENTER", iconBorder, "CENTER", 0, 0)
     icon:SetTexture("Interface\\Icons\\Achievement_General_StayClassy")
     local hdr = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    hdr:SetPoint("TOPLEFT", iconBorder, "TOPRIGHT", 10, -4)
+    hdr:SetFont("Fonts\\FRIZQT__.TTF", 30, "OUTLINE")
+    hdr:SetPoint("TOPLEFT", iconBorder, "TOPRIGHT", 20, -12)
     hdr:SetText("|cffffdd00Achievement Earned!|r")
     local sub = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    sub:SetPoint("TOPLEFT", hdr, "BOTTOMLEFT", 0, -4)
+    sub:SetFont("Fonts\\FRIZQT__.TTF", 24, "OUTLINE")
+    sub:SetPoint("TOPLEFT", hdr, "BOTTOMLEFT", 0, -10)
     f._sub = sub
     f:Hide()
     nhsAchieveFrame = f
@@ -240,12 +314,16 @@ local function nhsAchieveShowNext()
   nhsAchieveFrame._sub:SetText(taunt)
   nhsAchieveFrame:SetAlpha(1)
   nhsAchieveFrame:Show()
+  nhsTASConfetti()
   -- Play achievement toast sound (or level-up ding as fallback)
   local acheiveSound = (SOUNDKIT and SOUNDKIT.UI_ACHIEVEMENT_TOAST) or 888
   pcall(PlaySound, acheiveSound, "Master")
+  local gen = nhsTASClearGen
   C_Timer.After(4.0, function()
+    if gen ~= nhsTASClearGen then return end
     UIFrameFadeOut(nhsAchieveFrame, 0.8, 1, 0)
     C_Timer.After(0.9, function()
+      if gen ~= nhsTASClearGen then return end
       nhsAchieveFrame:Hide()
       nhsAchieveShowNext()
     end)
@@ -256,9 +334,55 @@ local function nhsTASHindranceFakeAchievement()
   if not nhsAchieveActive then nhsAchieveShowNext() end
 end
 
--- Hindrance: /chicken emote on the seeker (visible to everyone nearby).
+-- Hindrance: /chicken emote on the seeker (visible to everyone nearby), with a shaking
+-- chicken icon near each corner of the screen.
 local function nhsTASHindranceChicken()
   if not InCombatLockdown() then pcall(DoEmote, "CHICKEN") end
+
+  local ICON_SIZE = 128
+  local MARGIN    = 40
+  local DURATION  = 6.0
+  local SHAKE     = 10    -- max pixels of jitter each way
+  local INTERVAL  = 0.04  -- seconds between jitter steps
+
+  local root = CreateFrame("Frame", nil, UIParent)
+  root:SetAllPoints(UIParent)
+  root:SetFrameStrata("FULLSCREEN_DIALOG")
+  root:SetFrameLevel(96)
+  root:Show()
+  nhsTASActiveRoots[#nhsTASActiveRoots + 1] = root
+
+  local corners = {
+    { point = "TOPLEFT",     x =  MARGIN, y = -MARGIN },
+    { point = "TOPRIGHT",    x = -MARGIN, y = -MARGIN },
+    { point = "BOTTOMLEFT",  x =  MARGIN, y =  MARGIN },
+    { point = "BOTTOMRIGHT", x = -MARGIN, y =  MARGIN },
+  }
+  for _, c in ipairs(corners) do
+    local tex = root:CreateTexture(nil, "ARTWORK")
+    tex:SetSize(ICON_SIZE, ICON_SIZE)
+    tex:SetPoint(c.point, root, c.point, c.x, c.y)
+    tex:SetTexture("Interface\\Icons\\Spell_Magic_PolymorphChicken")
+    c.tex = tex
+  end
+
+  local elapsed, sinceShake = 0, 0
+  root:SetScript("OnUpdate", function(self, dt)
+    elapsed    = elapsed + dt
+    sinceShake = sinceShake + dt
+    if elapsed >= DURATION then
+      self:SetScript("OnUpdate", nil)
+      self:Hide()
+      return
+    end
+    if sinceShake < INTERVAL then return end
+    sinceShake = 0
+    for _, c in ipairs(corners) do
+      c.tex:ClearAllPoints()
+      c.tex:SetPoint(c.point, root, c.point,
+          c.x + math.random(-SHAKE, SHAKE), c.y + math.random(-SHAKE, SHAKE))
+    end
+  end)
 end
 
 -- Hindrance: Force world map open.
@@ -308,6 +432,7 @@ local function nhsTASHindranceToyInvite()
   })
   root:SetBackdropColor(0, 0, 0, 0.88)
   root:Show()
+  nhsTASActiveRoots[#nhsTASActiveRoots + 1] = root
 
   local lbl = root:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   lbl:SetPoint("TOP", root, "TOP", 0, -18)
@@ -374,6 +499,7 @@ local function nhsTASHindranceGrowingButton()
   root:SetFrameStrata("FULLSCREEN_DIALOG")
   root:SetFrameLevel(98)
   root:Show()
+  nhsTASActiveRoots[#nhsTASActiveRoots + 1] = root
 
   local presses     = PRESSES
   local growElapsed = 0
@@ -429,25 +555,94 @@ local function nhsTASHindranceBlind()
   end
   -- Voice line fires immediately so the seeker can hear the warning before darkness hits.
   pcall(PlaySound, 11466, "Dialog")  -- Illidan "You are not prepared!"
+  local gen = nhsTASClearGen
   C_Timer.After(2.0, function()      -- black screen 2 s after the voice line starts
+    if gen ~= nhsTASClearGen then return end
     nhsBlindFrame:SetAlpha(0)
     nhsBlindFrame:Show()
     UIFrameFadeIn(nhsBlindFrame, 0.25, 0, 1)
     C_Timer.After(1.2, function()    -- hold full black 0.5 s longer (was 0.7)
+      if gen ~= nhsTASClearGen then return end
       UIFrameFadeOut(nhsBlindFrame, 1.0, 1, 0)
-      C_Timer.After(1.1, function() nhsBlindFrame:Hide() end)
+      C_Timer.After(1.1, function()
+        if gen ~= nhsTASClearGen then return end
+        nhsBlindFrame:Hide()
+      end)
     end)
   end)
 end
 
+
+-- Hindrance: Locked camera — re-asserts the zoom every tick for a few seconds so the
+-- seeker can't just scroll back; a one-shot CameraZoomIn/Out or CVar set alone wouldn't
+-- stick. A generation token guards the delayed release so overlapping triggers (a new
+-- lock firing before the previous one's timer expires) don't let the old timer cancel
+-- the new lock early.
+local nhsCameraLockTicker
+local nhsCameraLockLabel
+local nhsCameraLockGen = 0
+local CAMERA_LOCK_DURATION = 12.0
+
+local function nhsTASCameraLockLabel()
+  if nhsCameraLockLabel then return nhsCameraLockLabel end
+  local f = CreateFrame("Frame", nil, UIParent)
+  f:SetSize(420, 40)
+  f:SetPoint("TOP", UIParent, "TOP", 0, -120)
+  f:SetFrameStrata("FULLSCREEN_DIALOG")
+  f:SetFrameLevel(99)
+  local fs = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  fs:SetAllPoints()
+  fs:SetJustifyH("CENTER")
+  f._fs = fs
+  f:Hide()
+  nhsCameraLockLabel = f
+  return f
+end
+
+local function nhsTASCameraLockStart(zoomFn, text)
+  if nhsCameraLockTicker then nhsCameraLockTicker:Cancel() end
+  nhsCameraLockGen = nhsCameraLockGen + 1
+  local myGen = nhsCameraLockGen
+
+  local lbl = nhsTASCameraLockLabel()
+  lbl._fs:SetText(text)
+  lbl:SetAlpha(0)
+  lbl:Show()
+  UIFrameFadeIn(lbl, 0.4, 0, 1)
+
+  nhsCameraLockTicker = C_Timer.NewTicker(0.1, function() pcall(zoomFn, 50) end)
+  C_Timer.After(CAMERA_LOCK_DURATION, function()
+    if myGen ~= nhsCameraLockGen then return end  -- superseded by a newer lock
+    if nhsCameraLockTicker then
+      nhsCameraLockTicker:Cancel()
+      nhsCameraLockTicker = nil
+    end
+    UIFrameFadeOut(lbl, 0.4, 1, 0)
+    C_Timer.After(0.5, function()
+      if myGen == nhsCameraLockGen then lbl:Hide() end
+    end)
+  end)
+end
+
+-- Hindrance: Locked close camera — snaps to first person and holds it.
+local function nhsTASHindranceLockedCloseCamera()
+  nhsTASCameraLockStart(CameraZoomIn, "|cffff4444Camera Locked: First Person!|r")
+end
+
+-- Hindrance: Locked far camera — snaps to max zoom-out and holds it.
+local function nhsTASHindranceLockedFarCamera()
+  nhsTASCameraLockStart(CameraZoomOut, "|cffff4444Camera Locked: Max Zoom!|r")
+end
 
 -- ─── Silly art popups ─────────────────────────────────────────────────────────
 -- Each popup creates a fresh root frame so cleanup is trivial (just hide the root).
 
 -- Shared fade-out and cleanup after a popup has run.
 local function nhsTASPopupClose(root, delay)
+  nhsTASActiveRoots[#nhsTASActiveRoots + 1] = root
   C_Timer.After(delay or 3.0, function()
-    if root then
+    -- UIFrameFadeOut re-shows its frame, so skip popups already cleared.
+    if root and root:IsShown() then
       UIFrameFadeOut(root, 0.5, 1, 0)
       C_Timer.After(0.6, function() root:Hide() end)
     end
@@ -468,30 +663,36 @@ local function nhsTASPopupTurtle()
   local sw = GetScreenWidth()
   local sh = GetScreenHeight()
 
-  -- Turtle icon (128x128) — file data ID 1738657 (verified in-game).
+  -- Turtle icon — file data ID 1738657 (verified in-game).
+  local TURTLE_SIZE = 256
+  local turtleY  = (sh - TURTLE_SIZE) / 2
+  local turtleX2 = sw * 0.72 - TURTLE_SIZE / 2
   local iconFrm = CreateFrame("Frame", nil, root)
-  iconFrm:SetSize(128, 128)
-  iconFrm:SetPoint("LEFT", root, "LEFT", 40, sh * 0.42 - 64)
+  iconFrm:SetSize(TURTLE_SIZE, TURTLE_SIZE)
+  iconFrm:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 40, turtleY)
+  iconFrm:SetFrameLevel(root:GetFrameLevel() + 5)  -- swims on top of the water
   local iconTex = iconFrm:CreateTexture(nil, "ARTWORK")
   iconTex:SetAllPoints()
   iconTex:SetTexture(1738657)
   iconFrm:Show()
 
-  -- Wall of water icons arranged in a vertical column at the destination X.
-  local targetPct = 0.72
-  local WALL_COUNT = 7
-  local WALL_SIZE  = 80
-  local wallX = sw * targetPct
-  for j = 1, WALL_COUNT do
-    local wf = CreateFrame("Frame", nil, root)
-    wf:SetSize(WALL_SIZE, WALL_SIZE)
-    -- Spread from near bottom to near top, leaving a small margin
-    local wy = sh * 0.05 + (j - 1) * ((sh * 0.9) / (WALL_COUNT - 1)) - WALL_SIZE / 2
-    wf:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", wallX - WALL_SIZE / 2, wy)
-    local wt = wf:CreateTexture(nil, "ARTWORK")
-    wt:SetAllPoints()
-    wt:SetTexture(135861)  -- water icon — file data ID verified in-game
-    wf:Show()
+  -- Water tiles fill the screen from the destination X to the right edge. Rows and
+  -- columns come from the actual screen size so any resolution or UI scale is covered.
+  local WALL_SIZE = 240
+  local wallX = sw * 0.72
+  local rows = math.ceil(sh / WALL_SIZE)
+  local cols = math.ceil((sw - wallX) / WALL_SIZE)
+  for c = 1, cols do
+    for r = 1, rows do
+      local wf = CreateFrame("Frame", nil, root)
+      wf:SetSize(WALL_SIZE, WALL_SIZE)
+      wf:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT",
+          wallX + (c - 1) * WALL_SIZE, (r - 1) * WALL_SIZE)
+      local wt = wf:CreateTexture(nil, "ARTWORK")
+      wt:SetAllPoints()
+      wt:SetTexture(135861)  -- water icon — file data ID verified in-game
+      wf:Show()
+    end
   end
 
   -- Slide turtle from left toward the wall of water
@@ -502,7 +703,7 @@ local function nhsTASPopupTurtle()
     local pct  = math.min(elapsed / duration, 1)
     local ease = 1 - (1 - pct) * (1 - pct)  -- ease-out
     self:ClearAllPoints()
-    self:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 40 + (wallX - 40) * ease, sh * 0.42)
+    self:SetPoint("BOTTOMLEFT", root, "BOTTOMLEFT", 40 + (turtleX2 - 40) * ease, turtleY)
     if pct >= 1 then self:SetScript("OnUpdate", nil) end
   end)
 
@@ -599,8 +800,36 @@ local function nhsTASPopupLeeroy()
   nhsTASPopupClose(root, 3.5)
 end
 
+-- Giant Xal'atath framing.
+local nhsXalGiant = {
+  fov = 0.55,   -- lower = bigger
+  -- Her size follows the screen height, so the offsets are fractions of it too.
+  x   = -0.216, -- negative = left
+  y   = -0.417, -- negative = down
+}
+
+local function nhsTASXalGiantApply(scene)
+  -- The scene clips the model, so it must still cover the whole screen after the shift.
+  -- Scaling both sides by one factor keeps the aspect ratio, so only the zoom changes.
+  local sw = GetScreenWidth()
+  local sh = GetScreenHeight()
+  local x = nhsXalGiant.x * sh
+  local y = nhsXalGiant.y * sh
+  local cover = math.max(1 + 2 * math.abs(x) / sw, 1 + 2 * math.abs(y) / sh)
+  scene:SetSize(sw * cover, sh * cover)
+  scene:ClearAllPoints()
+  scene:SetPoint("CENTER", UIParent, "CENTER", x, y)
+  -- Zoom with the camera: up close, her float animation swings her size around.
+  -- Widening by the same factor cancels the bigger scene, so fov alone sets her size.
+  scene:SetCameraFieldOfView(2 * math.atan(math.tan(nhsXalGiant.fov / 2) * cover / 1.5))
+end
+
 -- Popup 3 — Xal'atath Whispers
-local function nhsTASPopupXalatath()
+-- Easter egg: 10% of the time she is giant, with her feet at the middle of the screen.
+-- forceGiant is for the test panel.
+local function nhsTASPopupXalatath(forceGiant)
+  local giant = forceGiant or math.random(10) == 1
+
   local root = CreateFrame("Frame", nil, UIParent)
   root:SetAllPoints(UIParent)
   root:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -621,37 +850,44 @@ local function nhsTASPopupXalatath()
   dim:SetColorTexture(0, 0, 0.06, 0.72)
   dim:Show()
 
-  -- Xal'atath's artifact dagger (item 128827 — Xal'atath, Blade of the Black Empire).
-  -- Lazy-loads via GET_ITEM_INFO_RECEIVED so it appears correctly even on first trigger.
-  -- The icon slowly rotates for a mystical void-weapon feel.
+  -- Xal'atath's 3D model. The scene's default camera sits at the origin looking down +X,
+  -- so X is distance, and a negative Z lowers her into view — tune both in-game.
+  local XAL_MODEL_FILE = 5159886
+  local XAL_MODEL_ANIM = 1138    -- floating idle
+  local XAL_MODEL_SIZE = 440
+  local XAL_MODEL_DIST = 5
+  local XAL_MODEL_Z    = -1.1
+  local XAL_FADE_IN    = 0.8
+  local mainFrm = CreateFrame("ModelScene", nil, root)
+  if giant then
+    nhsTASXalGiantApply(mainFrm)
+  else
+    mainFrm:SetSize(XAL_MODEL_SIZE, XAL_MODEL_SIZE)
+    mainFrm:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY)
+  end
+  mainFrm:Show()
+  local actor = mainFrm:CreateActor()
+  actor:SetModelByFileID(XAL_MODEL_FILE)
+  actor:SetAnimation(XAL_MODEL_ANIM)
+  if giant then
+    actor:SetPosition(XAL_MODEL_DIST, 0, 0)
+  else
+    actor:SetPosition(XAL_MODEL_DIST, 0, XAL_MODEL_Z)
+  end
+  actor:SetYaw(math.pi)          -- face the camera
+  actor:SetAlpha(0)
+
+  -- Xal'atath's artifact dagger (item 128827 — Xal'atath, Blade of the Black Empire),
+  -- the last orb in the circle. Lazy-loads via GET_ITEM_INFO_RECEIVED below so it
+  -- appears correctly even on first trigger.
   local XAL_ITEM_ID = 128827
   local XAL_FALLBACK = "Interface\\Icons\\inv_weapon_shortblade_92"
-  local mainFrm = CreateFrame("Frame", nil, root)
-  mainFrm:SetSize(160, 160)
-  mainFrm:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY)
-  local mainTex = mainFrm:CreateTexture(nil, "ARTWORK")
-  mainTex:SetAllPoints()
   C_Item.RequestLoadItemDataByID(XAL_ITEM_ID)
-  local _, _, _, _, _, _, _, _, _, xalIcon = GetItemInfo(XAL_ITEM_ID)
-  mainTex:SetTexture(xalIcon or XAL_FALLBACK)
-  if not xalIcon then
-    local xalEvt = CreateFrame("Frame", nil, root)
-    xalEvt:RegisterEvent("GET_ITEM_INFO_RECEIVED")
-    xalEvt:SetScript("OnEvent", function(self, _, id)
-      if id == XAL_ITEM_ID then
-        local _, _, _, _, _, _, _, _, _, icon = GetItemInfo(XAL_ITEM_ID)
-        if icon then mainTex:SetTexture(icon) end
-        self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
-      end
-    end)
-  end
-  mainFrm:SetAlpha(0)
-  mainFrm:Show()
-  UIFrameFadeIn(mainFrm, 0.8, 0, 1)
+  local _, _, _, _, _, _, _, _, _, xalIcon = C_Item.GetItemInfo(XAL_ITEM_ID)
 
   -- Orbiting void icons
-  local ORB_COUNT  = 6
-  local ORB_RADIUS = 110
+  local ORB_COUNT  = 7
+  local ORB_RADIUS = 170
   local ORB_SIZE   = 36
   local ORB_ICONS  = {
     "Interface\\Icons\\Spell_Shadow_ShadowWordPain",
@@ -660,6 +896,7 @@ local function nhsTASPopupXalatath()
     "Interface\\Icons\\Spell_Shadow_AbominationExplosion",
     "Interface\\Icons\\Spell_Shadow_MindBlast",
     "Interface\\Icons\\Spell_Shadow_Possession",
+    xalIcon or XAL_FALLBACK,
   }
   local orbs = {}
   for i = 1, ORB_COUNT do
@@ -669,20 +906,32 @@ local function nhsTASPopupXalatath()
     local ot = of:CreateTexture(nil, "ARTWORK")
     ot:SetAllPoints()
     ot:SetTexture(ORB_ICONS[i] or "Interface\\Icons\\Spell_Shadow_ShadowWordPain")
-    ot:SetVertexColor(0.6, 0.2, 0.9)
+    if i < ORB_COUNT then ot:SetVertexColor(0.6, 0.2, 0.9) end  -- dagger keeps its colors
     of:SetAlpha(0)
     of:Show()
     UIFrameFadeIn(of, 0.5, 0, 0.85)
-    orbs[i] = { frame = of, angle = (i - 1) * (2 * math.pi / ORB_COUNT) }
+    orbs[i] = { frame = of, tex = ot, angle = (i - 1) * (2 * math.pi / ORB_COUNT) }
   end
 
-  -- Pulse main + orbit orbs
+  if not xalIcon then
+    local xalEvt = CreateFrame("Frame", nil, root)
+    xalEvt:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+    xalEvt:SetScript("OnEvent", function(self, _, id)
+      if id == XAL_ITEM_ID then
+        local _, _, _, _, _, _, _, _, _, icon = C_Item.GetItemInfo(XAL_ITEM_ID)
+        if icon then orbs[ORB_COUNT].tex:SetTexture(icon) end
+        self:UnregisterEvent("GET_ITEM_INFO_RECEIVED")
+      end
+    end)
+  end
+
+  -- Fade the model + orbit orbs
   local pulse     = 0
   local ORB_SPEED = 0.7  -- radians per second
   mainFrm:SetScript("OnUpdate", function(self, dt)
     pulse = pulse + dt
-    self:SetScale(1 + 0.06 * math.sin(pulse * 2.5))
-    mainTex:SetRotation(pulse * 0.35)  -- slow mystical rotation on the dagger icon
+    -- The actor's alpha is driven here so the root's fade-out reaches the model too.
+    actor:SetAlpha(math.min(pulse / XAL_FADE_IN, 1) * root:GetAlpha())
     for _, orb in ipairs(orbs) do
       local a  = orb.angle + pulse * ORB_SPEED
       local ox = cX + math.cos(a) * ORB_RADIUS
@@ -694,7 +943,7 @@ local function nhsTASPopupXalatath()
 
   -- Text — fade in well below the model so it's never covered by orbitals
   local lbl = root:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  lbl:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY - 175)
+  lbl:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY - 250)
   lbl:SetWidth(520)
   lbl:SetJustifyH("CENTER")
   lbl:SetText(
@@ -814,7 +1063,7 @@ local function nhsTASPopupThunderfury()
   sfFrm:SetPoint("CENTER", root, "CENTER", 0, 0)
   local sfTex = sfFrm:CreateTexture(nil, "ARTWORK")
   sfTex:SetAllPoints()
-  local _, _, _, _, _, _, _, _, _, sfP = GetItemInfo(19019)
+  local _, _, _, _, _, _, _, _, _, sfP = C_Item.GetItemInfo(19019)
   sfTex:SetTexture(sfP or "Interface\\Icons\\inv_sword_39")
   sfFrm:SetAlpha(0)
   sfFrm:Show()
@@ -848,6 +1097,7 @@ local function nhsTASPopupThunderfury()
   C_Timer.After(0.4, function()
     typeOut(PRE_TEXT, preLbl, 1, function()
       C_Timer.After(0.35, function()
+        if not root:IsShown() then return end
         UIFrameFadeIn(sfFrm, 0.4, 0, 1)
         pcall(PlaySound, 13006, "Master")  -- Shaman Thunderstorm impact
         C_Timer.After(0.5, function()
@@ -961,7 +1211,7 @@ local function nhsTASPopupClassQuiz()
   qLbl:SetText("|cffffff00What class uses these?|r")
   qLbl:Show()
 
-  -- Answer typed out below the question 2.5 s later
+  -- Answer typed out below the question once the seeker picks correctly
   local ansLbl = root:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
   ansLbl:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY + 65)
   ansLbl:SetText("")
@@ -971,7 +1221,7 @@ local function nhsTASPopupClassQuiz()
   end
   ansLbl:Show()
 
-  -- Class icon — diamond bottom point, below the two side icons; fades in with the reveal
+  -- Class icon — diamond bottom point, replaces the answer buttons on a correct pick
   local revealFrm = CreateFrame("Frame", nil, root)
   revealFrm:SetSize(ICON_SIZE, ICON_SIZE)
   revealFrm:SetPoint("CENTER", root, "BOTTOMLEFT", cX, cY - 140)
@@ -981,13 +1231,64 @@ local function nhsTASPopupClassQuiz()
   revealFrm:SetAlpha(0)
   revealFrm:Show()
 
-  C_Timer.After(2.5, function()
-    pcall(PlaySound, SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_OPEN or 857, "Master")
-    UIFrameFadeIn(revealFrm, 0.5, 0, 1)
-    nhsTASTypeOut(cls.name, ansLbl)
-  end)
+  -- Stays up until the seeker picks correctly (or the hindrances are cleared).
+  nhsTASActiveRoots[#nhsTASActiveRoots + 1] = root
 
-  nhsTASPopupClose(root, 7.0)
+  local BTN_W, BTN_H, BTN_OFF = 240, 56, 130
+  local QUESTION = "|cffffff00What class uses these?|r"
+  local WRONG_LOCKOUT = 3.0
+  local btns = {}
+  local lastWrong
+
+  -- Puts the right class and a new wrong class on the buttons in a random order.
+  local function setAnswers()
+    local wrong
+    repeat
+      wrong = CLASS_QUIZ_DATA[math.random(#CLASS_QUIZ_DATA)]
+    until wrong ~= cls and wrong ~= lastWrong
+    lastWrong = wrong
+    local right = math.random(2)
+    btns[right]:SetText(cls.name)
+    btns[right]._correct = true
+    btns[3 - right]:SetText(wrong.name)
+    btns[3 - right]._correct = false
+  end
+
+  local function onAnswer(self)
+    if self._correct then
+      btns[1]:Hide()
+      btns[2]:Hide()
+      qLbl:SetText("|cff00ff88Correct!|r")
+      pcall(PlaySound, SOUNDKIT and SOUNDKIT.IG_QUEST_LOG_OPEN or 857, "Master")
+      UIFrameFadeIn(revealFrm, 0.5, 0, 1)
+      nhsTASTypeOut(cls.name, ansLbl)
+      nhsTASPopupClose(root, 3.0)
+      return
+    end
+    -- Wrong answer: lock the buttons, then ask again with a different wrong class.
+    btns[1]:Disable()
+    btns[2]:Disable()
+    qLbl:SetText("|cffff4444Wrong! Think about what you've done...|r")
+    pcall(PlaySound, SOUNDKIT and SOUNDKIT.IG_QUEST_FAILED or 847, "Master")
+    C_Timer.After(WRONG_LOCKOUT, function()
+      if not root:IsShown() then return end
+      qLbl:SetText(QUESTION)
+      setAnswers()
+      btns[1]:Enable()
+      btns[2]:Enable()
+    end)
+  end
+
+  for i, side in ipairs({ -1, 1 }) do
+    local btn = CreateFrame("Button", nil, root, "UIPanelButtonTemplate")
+    btn:SetSize(BTN_W, BTN_H)
+    btn:SetPoint("CENTER", root, "BOTTOMLEFT", cX + side * BTN_OFF, cY - 140)
+    btn:GetFontString():SetFont("Fonts\\FRIZQT__.TTF", 18, "OUTLINE")
+    btn:SetScript("OnClick", onAnswer)
+    btn:Show()
+    btns[i] = btn
+  end
+  setAnswers()
 end
 
 -- Popup 7 — Hide & Seek Tier List
@@ -1004,12 +1305,16 @@ local function nhsTASPopupTierList()
 
   pcall(PlaySound, 6913, "Master")
 
-  -- Seeker is "player"; party1–N are the hiders
+  -- Seeker is "player"; everyone else in the party or raid is a hider
   local seekerClass, seekerTag = UnitClass("player")
   local hiders = {}
-  for i = 1, GetNumGroupMembers() - 1 do
-    local localName, tag = UnitClass("party" .. i)
-    if tag then hiders[#hiders + 1] = { name = localName, tag = tag } end
+  local unitPrefix = IsInRaid() and "raid" or "party"
+  for i = 1, GetNumGroupMembers() do
+    local unit = unitPrefix .. i
+    if UnitExists(unit) and not UnitIsUnit(unit, "player") then
+      local localName, tag = UnitClass(unit)
+      if tag then hiders[#hiders + 1] = { name = localName, tag = tag } end
+    end
   end
   for i = #hiders, 2, -1 do    -- shuffle so tier assignment feels random
     local j = math.random(i)
@@ -1049,6 +1354,9 @@ local function nhsTASPopupTierList()
     local rowY   = startY - (rowIdx - 1) * (ROW_H + ROW_GAP)
     local lc, bc = td.lc, td.bc
     local classes = slots[td.key] or {}
+    -- Large raids squeeze the icons together so a row never runs past the frame.
+    local iconStep = math.min(ICON_SZ + 6,
+        (FRAME_W - LABEL_W - 16 - ICON_SZ) / math.max(#classes - 1, 1))
 
     local lbg = root:CreateTexture(nil, "BACKGROUND")
     lbg:SetSize(LABEL_W, ROW_H)
@@ -1067,7 +1375,7 @@ local function nhsTASPopupTierList()
     cbg:SetColorTexture(bc[1], bc[2], bc[3], bc[4])
 
     for ci, cls in ipairs(classes) do
-      local entryX = frameX + LABEL_W + 8 + (ci - 1) * (ICON_SZ + 6)
+      local entryX = frameX + LABEL_W + 8 + (ci - 1) * iconStep
       local entryY = rowY + (ROW_H - ICON_SZ) / 2
       local iconFrm = CreateFrame("Frame", nil, root)
       iconFrm:SetSize(ICON_SZ, ICON_SZ)
@@ -1082,15 +1390,46 @@ local function nhsTASPopupTierList()
   nhsTASPopupClose(root, 6.0)
 end
 
+-- ─── Hindrance cleanup ────────────────────────────────────────────────────────
+local function nhsTASHideNow(f)
+  if not f then return end
+  if UIFrameFadeRemoveFrame then UIFrameFadeRemoveFrame(f) end
+  f:Hide()
+end
+
+-- Ends every running hindrance and drops queued ones. Blizzard panels the hindrances
+-- opened (map, bags, achievements, chat) are left for the player to close.
+local function nhsTASClearHindrances()
+  nhsTASClearGen = nhsTASClearGen + 1
+  nhsTASHindranceQueue = 0
+
+  for _, root in ipairs(nhsTASActiveRoots) do nhsTASHideNow(root) end
+  wipe(nhsTASActiveRoots)
+
+  nhsCameraLockGen = nhsCameraLockGen + 1
+  if nhsCameraLockTicker then
+    nhsCameraLockTicker:Cancel()
+    nhsCameraLockTicker = nil
+  end
+  nhsTASHideNow(nhsCameraLockLabel)
+
+  wipe(nhsAchieveQueue)
+  nhsAchieveActive = false
+  nhsTASHideNow(nhsAchieveFrame)
+  nhsTASHideNow(nhsTintFrame)
+  nhsTASHideNow(nhsBlindFrame)
+  if UIFrameFlashStop and LowHealthFrame then pcall(UIFrameFlashStop, LowHealthFrame) end
+end
+
 -- ─── Hindrance dispatcher ─────────────────────────────────────────────────────
--- 18 options: 11 effect hindrances + 7 art popups (each popup is its own slot).
--- History tracks the last 2 picks so no hindrance repeats twice in a row.
+-- 20 options: 13 effect hindrances + 7 art popups (each popup is its own slot).
+-- History tracks the last 4 picks so no hindrance repeats too soon.
 local function nhsTASFireHindrance()
-  -- Avoid repeating any of the last 4 hindrances. With 18 options and 4
-  -- excluded there are always at least 14 valid choices, so this loop exits fast.
+  -- Avoid repeating any of the last 4 hindrances. With 20 options and 4
+  -- excluded there are always at least 16 valid choices, so this loop exits fast.
   local pick
   repeat
-    pick = math.random(18)
+    pick = math.random(20)
   until pick ~= nhsTASHindranceHistory[1] and pick ~= nhsTASHindranceHistory[2]
      and pick ~= nhsTASHindranceHistory[3] and pick ~= nhsTASHindranceHistory[4]
   nhsTASHindranceHistory[1] = nhsTASHindranceHistory[2]
@@ -1109,13 +1448,15 @@ local function nhsTASFireHindrance()
   elseif pick == 9  then nhsTASHindranceOpenBags()
   elseif pick == 10 then nhsTASHindranceToyInvite()
   elseif pick == 11 then nhsTASHindranceGrowingButton()
-  elseif pick == 12 then nhsTASPopupTurtle()
-  elseif pick == 13 then nhsTASPopupLeeroy()
-  elseif pick == 14 then nhsTASPopupXalatath()
-  elseif pick == 15 then nhsTASPopupMurlocs()
-  elseif pick == 16 then nhsTASPopupThunderfury()
-  elseif pick == 17 then nhsTASPopupClassQuiz()
-  elseif pick == 18 then nhsTASPopupTierList()
+  elseif pick == 12 then nhsTASHindranceLockedCloseCamera()
+  elseif pick == 13 then nhsTASHindranceLockedFarCamera()
+  elseif pick == 14 then nhsTASPopupTurtle()
+  elseif pick == 15 then nhsTASPopupLeeroy()
+  elseif pick == 16 then nhsTASPopupXalatath()
+  elseif pick == 17 then nhsTASPopupMurlocs()
+  elseif pick == 18 then nhsTASPopupThunderfury()
+  elseif pick == 19 then nhsTASPopupClassQuiz()
+  elseif pick == 20 then nhsTASPopupTierList()
   end
 end
 
@@ -1268,6 +1609,13 @@ end
 
 -- ─── Sync function (called at every phase transition) ────────────────────────
 function NHS.SyncToyAndSeekMode()
+  -- Only act on the transition so test panel hindrances survive sync calls outside a round.
+  local searching = nhsTASIsActive() and State.phase == Phase.SEARCHING
+  if nhsTASWasSearching and not searching then
+    nhsTASClearHindrances()
+  end
+  nhsTASWasSearching = searching
+
   -- Buff bar: hide for active hiders, restore otherwise.
   if nhsTASIsHider() then
     nhsTASHideBuffBar()
@@ -1296,6 +1644,7 @@ NHS.ToyAndSeek = {
   -- Accessible via NHS.ToyAndSeek.TEST; populated below after all locals are defined.
   TEST = {
     FireRandom      = nhsTASFireHindrance,
+    ClearAll        = nhsTASClearHindrances,
     -- Hindrances
     LowHealth       = nhsTASHindranceLowHealth,
     ColorTint       = nhsTASHindranceColorTint,
@@ -1308,6 +1657,8 @@ NHS.ToyAndSeek = {
     OpenBags        = nhsTASHindranceOpenBags,
     ToyInvite       = nhsTASHindranceToyInvite,
     GrowingButton   = nhsTASHindranceGrowingButton,
+    LockedCloseCam  = nhsTASHindranceLockedCloseCamera,
+    LockedFarCam    = nhsTASHindranceLockedFarCamera,
     -- Art popups (indexed 1–7)
     Popups = {
       nhsTASPopupTurtle,
@@ -1317,8 +1668,9 @@ NHS.ToyAndSeek = {
       nhsTASPopupThunderfury,
       nhsTASPopupClassQuiz,
       nhsTASPopupTierList,
+      function() nhsTASPopupXalatath(true) end,
     },
-    PopupLabels = { "Turtle", "Leeroy", "Xal'atath", "Murlocs", "Thunderfury", "ClassQuiz", "TierList" },
+    PopupLabels = { "Turtle", "Leeroy", "Xal'atath", "Murlocs", "Thunderfury", "ClassQuiz", "TierList", "Giant Xal" },
   },
 }
 

@@ -2,6 +2,29 @@
 
 All notable changes to Neighborhood Hide and Seek are documented in this file.
 
+## [1.3.2]
+
+### Added
+- Added more hindrances in Toying around (18 -> 20): locked first person camera and locked max zoom camera
+- Added 9 new toys to Toying around
+
+### Changed
+- Updated for WoW patch 12.1.5
+- Turtle popup now has a bigger turtle and water that fills the right side of the screen
+- Class quiz now requires the seeker to pick the correct class to close it, and a wrong answer locks the buttons for a few seconds
+- Achievement hindrance is now twice the size and comes with confetti
+- Chicken hindrance now shows shaking chickens in the corners of the screen
+- Xal'atath popup now shows her 3D model, and her dagger joins the circle of orbiting icons, and she might sometimes give you a close up
+
+### Fixed
+- Fixed Toying around errors caused by WoW API removals in patch 12.1.5
+- Toying around hindrances now clear when the searching phase ends
+- Tier list now includes all group members in raid groups
+- Toys now work on the first press instead of sometimes needing a second press
+- Hiding phase sound no longer replays when the phase is re-sent to the group
+- Players disguised by toys that change their name (like Bones of Transformation) now keep their real name in the found list and notifications
+
+
 ## [1.3.1]
 
 ### Changed
