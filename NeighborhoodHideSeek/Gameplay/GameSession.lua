@@ -22,7 +22,8 @@ local function nhsUnitSortKey(unit)
   if not UnitExists(unit) then
     return nil
   end
-  local name, realm = UnitFullName(unit)
+  -- Unmodified: disguises like Bones of Transformation replace UnitName/UnitFullName results.
+  local name, realm = UnitNameUnmodified(unit)
   if not name then
     return nil
   end
@@ -31,7 +32,7 @@ local function nhsUnitSortKey(unit)
 end
 
 local function nhsUnitDisplay(unit)
-  return UnitName(unit) or "?"
+  return UnitNameUnmodified(unit) or "?"
 end
 
 local function nhsGetGroupRoster()
@@ -733,7 +734,7 @@ local function nhsChatSenderMatchesSortKey(senderName, wantKey)
   if sk == uk then
     return true
   end
-  local name, realm = UnitFullName(unit)
+  local name, realm = UnitNameUnmodified(unit)
   if not name then
     return false
   end

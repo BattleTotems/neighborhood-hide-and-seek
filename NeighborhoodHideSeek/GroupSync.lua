@@ -770,8 +770,10 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     -- Legacy (pre–no-suffix): seeker after colon; still accepted from older clients.
     local hideKey = text:match("^%[NHS%]%s*Hiding Starts Now:%s*(.+)%s*$")
     if hideKey then
+      -- The leader re-sends this line on zoning and catch-up sync; only play the cue once.
+      local wasHiding = C.State.phase == Phase.HIDING
       nhsRemoteFollowerSyncRoundState(hideKey, Phase.HIDING)
-      if NHS.PlayHidingPhaseStartSound then
+      if not wasHiding and NHS.PlayHidingPhaseStartSound then
         NHS.PlayHidingPhaseStartSound()
       end
       if not C.State.hidingSpotTrackedForRound then
@@ -785,9 +787,10 @@ local function nhsApplyGroupSyncFromLeader(senderName, text)
     elseif text:match("^%[NHS%]%s*Hiding Starts Now%s*$") then
       C.State.remoteSessionActive = true
       if IsRoundPhase(C.State.phase) then
+        local wasHiding = C.State.phase == Phase.HIDING
         if NHS.FlushPhaseClock then NHS.FlushPhaseClock() end
         C.State.phase = Phase.HIDING
-        if NHS.PlayHidingPhaseStartSound then
+        if not wasHiding and NHS.PlayHidingPhaseStartSound then
           NHS.PlayHidingPhaseStartSound()
         end
         if not C.State.hidingSpotTrackedForRound then
